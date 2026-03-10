@@ -1,0 +1,52 @@
+import 'package:flutter/material.dart';
+import 'speed_field_row.dart';
+import '../constants/app_constants.dart';
+
+/// Card widget for speed control settings.
+class SpeedCard extends StatelessWidget {
+  final TextEditingController maxSpeedController;
+  final TextEditingController baseSpeedController;
+  final VoidCallback onMaxSpeedSend;
+  final VoidCallback onBaseSpeedSend;
+
+  const SpeedCard({
+    super.key,
+    required this.maxSpeedController,
+    required this.baseSpeedController,
+    required this.onMaxSpeedSend,
+    required this.onBaseSpeedSend,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              AppConstants.speedLabel,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            SpeedFieldRow(
+              label: AppConstants.maxSpeedLabel,
+              controller: maxSpeedController,
+              onSend: onMaxSpeedSend,
+            ),
+            const SizedBox(height: 8),
+            SpeedFieldRow(
+              label: AppConstants.baseSpeedLabel,
+              controller: baseSpeedController,
+              onSend: onBaseSpeedSend,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
