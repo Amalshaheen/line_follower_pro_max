@@ -21,6 +21,7 @@ class _DashboardPageState extends State<DashboardPage> {
   int runtime = 0; // Runtime in milliseconds
   late List<bool> sensorOnLine = List<bool>.filled(AppConstants.sensorCount, false);
   late List<int> sensorRawValues = List<int>.filled(AppConstants.sensorCount, 0);
+  bool showAnalogSensors = false;
   
   // PID values - these are the effective values sent to hardware
   double kp = AppConstants.defaultKp;
@@ -35,6 +36,8 @@ class _DashboardPageState extends State<DashboardPage> {
   late TextEditingController dController = TextEditingController(text: AppConstants.defaultKd.toStringAsFixed(2));
   late TextEditingController maxSpeedController = TextEditingController(text: '255');
   late TextEditingController baseSpeedController = TextEditingController(text: '150');
+  late TextEditingController thresholdAllController = TextEditingController(text: '2000');
+  late List<int> sensorThresholds = List<int>.filled(AppConstants.sensorCount, 2000);
 
   // History service and run history
   final HistoryService _historyService = HistoryService();
@@ -71,6 +74,7 @@ class _DashboardPageState extends State<DashboardPage> {
     dController.dispose();
     maxSpeedController.dispose();
     baseSpeedController.dispose();
+    thresholdAllController.dispose();
     bluetoothService.dispose();
     super.dispose();
   }
@@ -128,6 +132,17 @@ class _DashboardPageState extends State<DashboardPage> {
         debugPrint('✅ [DASHBOARD] ACK received: $command=$value');
         // Can be used to confirm settings were applied
       },
+      onThresholdsReceived: (thresholds) {
+        if (mounted && thresholds.length == AppConstants.sensorCount) {
+          final average =
+              thresholds.reduce((a, b) => a + b) ~/ AppConstants.sensorCount;
+          setState(() {
+            sensorThresholds = thresholds;
+            thresholdAllController.text = average.toString();
+          });
+          debugPrint('🎚️ [DASHBOARD] Thresholds synced: ${thresholds.join(', ')}');
+        }
+      },
       onDisconnected: () {
         if (mounted) {
           setState(() {
@@ -183,6 +198,7 @@ class _DashboardPageState extends State<DashboardPage> {
         if (success) {
           isConnected = true;
           btStatus = 'Connected to ${selectedDevice!.name ?? selectedDevice!.address}';
+          bluetoothService.sendCommand(AppConstants.cmdQueryThresholds);
         } else {
           btStatus = 'Failed to connect';
         }
@@ -433,6 +449,23 @@ class _DashboardPageState extends State<DashboardPage> {
     });
   }
 
+  void _handleThresholdAllSend() {
+    final threshold = int.tryParse(thresholdAllController.text.trim());
+    if (threshold == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid threshold value')),
+      );
+      return;
+    }
+    final sent = bluetoothService.sendThresholdForAllSensors(threshold);
+    if (sent) {
+      setState(() {
+        sensorThresholds = List<int>.filled(AppConstants.sensorCount, threshold);
+      });
+      debugPrint('🎚️ [DASHBOARD] Sent all-sensor threshold: $threshold');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     debugPrint('🏗️ [DASHBOARD] Building... current sensorOnLine: length=${sensorOnLine.length}, values=${sensorOnLine.map((s) => s ? 'ON' : 'OFF').join(',')}');
@@ -470,7 +503,14 @@ class _DashboardPageState extends State<DashboardPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SensorsCard(sensorOnLine: sensorOnLine),
+              SensorsCard(
+                sensorOnLine: sensorOnLine,
+                sensorRawValues: sensorRawValues,
+                showAnalog: showAnalogSensors,
+                onShowAnalogChanged: (value) {
+                  setState(() => showAnalogSensors = value);
+                },
+              ),
               const SizedBox(height: 12),
               ControlSummaryCard(
                 isRunning: isRunning,
@@ -509,6 +549,9 @@ class _DashboardPageState extends State<DashboardPage> {
               SpeedCard(
                 maxSpeedController: maxSpeedController,
                 baseSpeedController: baseSpeedController,
+                thresholdAllController: thresholdAllController,
+                thresholdInfoText:
+                    'Avg: ${sensorThresholds.reduce((a, b) => a + b) ~/ AppConstants.sensorCount} | First: ${sensorThresholds.first}',
                 onMaxSpeedSend: () {
                   final maxSpeed = maxSpeedController.text;
                   debugPrint('⚡ [APP] Max Speed button pressed, value: $maxSpeed');
@@ -521,6 +564,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   final command = '${AppConstants.cmdBaseSpeedPrefix}$baseSpeed';
                   bluetoothService.sendCommand(command);
                 },
+                onThresholdAllSend: _handleThresholdAllSend,
               ),
               const SizedBox(height: 12),
               HistoryCard(

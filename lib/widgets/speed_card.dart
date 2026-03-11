@@ -6,15 +6,21 @@ import '../constants/app_constants.dart';
 class SpeedCard extends StatelessWidget {
   final TextEditingController maxSpeedController;
   final TextEditingController baseSpeedController;
+  final TextEditingController? thresholdAllController;
+  final String? thresholdInfoText;
   final VoidCallback onMaxSpeedSend;
   final VoidCallback onBaseSpeedSend;
+  final VoidCallback? onThresholdAllSend;
 
   const SpeedCard({
     super.key,
     required this.maxSpeedController,
     required this.baseSpeedController,
+    this.thresholdAllController,
+    this.thresholdInfoText,
     required this.onMaxSpeedSend,
     required this.onBaseSpeedSend,
+    this.onThresholdAllSend,
   });
 
   @override
@@ -44,6 +50,21 @@ class SpeedCard extends StatelessWidget {
               controller: baseSpeedController,
               onSend: onBaseSpeedSend,
             ),
+            if (thresholdAllController != null && onThresholdAllSend != null) ...[
+              const SizedBox(height: 8),
+              SpeedFieldRow(
+                label: AppConstants.thresholdAllLabel,
+                controller: thresholdAllController!,
+                onSend: onThresholdAllSend!,
+              ),
+              if (thresholdInfoText != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  thresholdInfoText!,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ],
           ],
         ),
       ),

@@ -12,12 +12,14 @@ class BluetoothService {
   BluetoothConnection? _connection;
   StreamSubscription<Uint8List>? _inputSubscription;
   String _incomingBuffer = '';
+  List<int> _sensorThresholds = List<int>.filled(AppConstants.sensorCount, 2000);
 
   // Callbacks for handling incoming data and connection changes
   final Function(String line)? onDataReceived;
   final Function(List<int> rawValues, List<bool> onLine)? onSensorDataReceived;
   final Function(int runtimeMs)? onTrackFinished;
   final Function(String command, String value)? onAckReceived;
+  final Function(List<int> thresholds)? onThresholdsReceived;
   final VoidCallback? onDisconnected;
 
   bool get isConnected => _connection != null;
@@ -27,6 +29,7 @@ class BluetoothService {
     this.onSensorDataReceived,
     this.onTrackFinished,
     this.onAckReceived,
+    this.onThresholdsReceived,
     this.onDisconnected,
   });
 
@@ -131,6 +134,11 @@ class BluetoothService {
     }
   }
 
+  /// Set one threshold value for all sensors in hardware and app display logic.
+  bool sendThresholdForAllSensors(int threshold) {
+    return sendCommand('${AppConstants.cmdThresholdAllPrefix}$threshold');
+  }
+
   /// Handle incoming data from the Bluetooth device.
   void _handleIncomingData(Uint8List data) {
     final chunk = utf8.decode(data, allowMalformed: true);
@@ -164,12 +172,14 @@ class BluetoothService {
       if (parts.length == AppConstants.sensorCount) {
         // Parse raw analog values
         final rawValues = parts.map((v) => int.tryParse(v.trim()) ?? 0).toList();
-        
-        // For now, determine on/off using a simple threshold (midpoint of typical range)
-        // The hardware handles thresholding internally for PID, but we need to display
-        // This threshold can be adjusted or made configurable
-        const displayThreshold = 2000; // Midpoint of 0-4095 ADC range
-        final onLine = rawValues.map((v) => v > displayThreshold).toList();
+
+        final thresholds = _sensorThresholds.length == AppConstants.sensorCount
+            ? _sensorThresholds
+            : List<int>.filled(AppConstants.sensorCount, 2000);
+        final onLine = List<bool>.generate(
+          AppConstants.sensorCount,
+          (index) => rawValues[index] > thresholds[index],
+        );
         
         // Debug output for sensor changes
         final sensorStates = onLine.map((s) => s ? '🟢' : '⚫').join(' ');
@@ -179,6 +189,21 @@ class BluetoothService {
         onSensorDataReceived?.call(rawValues, onLine);
       } else {
         debugPrint('⚠️ [SENSORS] Expected ${AppConstants.sensorCount} values, got ${parts.length}');
+      }
+      return;
+    }
+
+    if (line.startsWith(AppConstants.respThresholds)) {
+      final payload = line.substring(AppConstants.respThresholds.length);
+      final parts = payload.split(',');
+      if (parts.length == AppConstants.sensorCount) {
+        _sensorThresholds = parts
+            .map((v) => int.tryParse(v.trim()) ?? 0)
+            .toList(growable: false);
+        debugPrint('🎚️ [THRESHOLDS] Updated thresholds: ${_sensorThresholds.join(', ')}');
+        onThresholdsReceived?.call(List<int>.from(_sensorThresholds));
+      } else {
+        debugPrint('⚠️ [THRESHOLDS] Expected ${AppConstants.sensorCount} values, got ${parts.length}');
       }
       return;
     }
@@ -208,6 +233,13 @@ class BluetoothService {
       if (eqIndex > 0) {
         final command = ackContent.substring(0, eqIndex);
         final value = ackContent.substring(eqIndex + 1);
+        if (command == 'THRALL') {
+          final threshold = int.tryParse(value);
+          if (threshold != null) {
+            _sensorThresholds = List<int>.filled(AppConstants.sensorCount, threshold);
+            onThresholdsReceived?.call(List<int>.from(_sensorThresholds));
+          }
+        }
         onAckReceived?.call(command, value);
       } else {
         onAckReceived?.call(ackContent, '');

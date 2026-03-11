@@ -35,12 +35,15 @@ class AppConstants {
   static const String cmdCalibrateBlack = 'CAL=BLACK';
   static const String cmdCalibrateWhite = 'CAL=WHITE';
   static const String cmdQueryTime = 'TIME?';
+  static const String cmdQueryThresholds = 'THRESH?';
+  static const String cmdThresholdAllPrefix = 'THRALL=';
 
   // Response prefixes from hardware
   static const String respSensors = 'SENSORS:';
   static const String respAck = 'ACK:';
   static const String respTrackFinished = 'TRACK_FINISHED';
   static const String respTimePrefix = 'TIME=';
+  static const String respThresholds = 'THRESHOLDS:';
 
   // UI strings
   static const String appTitle = 'Line Follower Control';
@@ -72,4 +75,5 @@ class AppConstants {
   // Calibration labels
   static const String calibrateBlackLabel = 'Calibrate Black';
   static const String calibrateWhiteLabel = 'Calibrate White';
+  static const String thresholdAllLabel = 'All sensor threshold';
 }

@@ -24,6 +24,33 @@ The Flutter app and ESP32 hardware were using **different command protocols**, c
 ## Solution
 Updated `hardware_updated.ino` to support **both** protocols:
 
+## Threshold Sync Protocol (New)
+
+The Flutter app now expects threshold updates from hardware so UI `onLine` state uses the same dynamic thresholds used by PID logic.
+
+1. Add a threshold response line:
+    - `THRESHOLDS:t0,t1,...,t11`
+2. Send this line whenever calibration updates thresholds.
+3. Add a bulk threshold override command:
+    - `THRALL=<value>`
+    - Reply with `ACK:THRALL=<value>`
+    - Then send `THRESHOLDS:...` again.
+
+For the calibration-based firmware (`sensorThresholds[12]`), use this helper:
+
+```cpp
+void sendThresholdsToApp() {
+   String payload = "THRESHOLDS:";
+   for (int i = 0; i < 12; i++) {
+      payload += String(sensorThresholds[i]);
+      if (i < 11) payload += ",";
+   }
+   SerialBT.println(payload);
+}
+```
+
+Call `sendThresholdsToApp();` at the end of `updateThresholds()` or right after `calibrateBlack()` and `calibrateWhite()`, and after handling `THRALL=`.
+
 ### New Commands (App Protocol)
 1. **Start/Stop Robot:**
    - `ROBOT,START` - Starts the robot via Bluetooth
