@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 class PidDigitEditorRow extends StatefulWidget {
   final String title;
   final double value;
-  final int integerDigits;
   final ValueChanged<double> onChanged;
   final Color? accentColor;
 
@@ -15,7 +14,6 @@ class PidDigitEditorRow extends StatefulWidget {
     super.key,
     required this.title,
     required this.value,
-    required this.integerDigits,
     required this.onChanged,
     this.accentColor,
   });
@@ -25,8 +23,32 @@ class PidDigitEditorRow extends StatefulWidget {
 }
 
 class _PidDigitEditorRowState extends State<PidDigitEditorRow> {
+  late final TextEditingController _valueController;
+
+  @override
+  void initState() {
+    super.initState();
+    _valueController = TextEditingController(
+      text: _clampAndRound(widget.value).toStringAsFixed(2),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant PidDigitEditorRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value) {
+      _valueController.text = _clampAndRound(widget.value).toStringAsFixed(2);
+    }
+  }
+
+  @override
+  void dispose() {
+    _valueController.dispose();
+    super.dispose();
+  }
+
   double _maxValue() {
-    final intMax = math.pow(10, widget.integerDigits).toDouble() - 1;
+    final intMax = math.pow(10, 3).toDouble() - 1;
     return intMax + 0.99;
   }
 
@@ -39,17 +61,26 @@ class _PidDigitEditorRowState extends State<PidDigitEditorRow> {
     widget.onChanged(_clampAndRound(widget.value + step));
   }
 
+  void _commitManualValue() {
+    final parsed = double.tryParse(_valueController.text.trim());
+    if (parsed == null) {
+      _valueController.text = _clampAndRound(widget.value).toStringAsFixed(2);
+      return;
+    }
+    widget.onChanged(_clampAndRound(parsed));
+  }
+
   @override
   Widget build(BuildContext context) {
     final normalized = _clampAndRound(widget.value);
     final parts = normalized.toStringAsFixed(2).split('.');
-    final intPart = parts[0].padLeft(widget.integerDigits, '0');
+    final intPart = parts[0].padLeft(3, '0');
     final decPart = parts[1];
     final accent = widget.accentColor ?? Theme.of(context).colorScheme.primary;
 
     final intSteps = List<double>.generate(
-      widget.integerDigits,
-      (index) => math.pow(10, widget.integerDigits - index - 1).toDouble(),
+      3,
+      (index) => math.pow(10, 3 - index - 1).toDouble(),
     );
 
     return Padding(
@@ -79,7 +110,7 @@ class _PidDigitEditorRowState extends State<PidDigitEditorRow> {
                 runSpacing: 3,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  for (var i = 0; i < widget.integerDigits; i++)
+                  for (var i = 0; i < 3; i++)
                     _DigitStepCell(
                       digit: intPart[i],
                       accentColor: accent,
@@ -103,11 +134,28 @@ class _PidDigitEditorRowState extends State<PidDigitEditorRow> {
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              normalized.toStringAsFixed(2),
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+            SizedBox(
+              width: 88,
+              child: TextField(
+                controller: _valueController,
+                textAlign: TextAlign.center,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 8,
+                  ),
+                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                onSubmitted: (_) => _commitManualValue(),
+                onEditingComplete: _commitManualValue,
+              ),
             ),
           ],
         ),
@@ -132,7 +180,7 @@ class _DigitStepCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 34,
+      width: 50,
       padding: const EdgeInsets.symmetric(vertical: 2),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -148,7 +196,7 @@ class _DigitStepCell extends StatelessWidget {
             semanticLabel: 'Increase digit',
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
+            padding: const EdgeInsets.symmetric(vertical: 1),
             child: Text(
               digit,
               style: const TextStyle(
@@ -223,7 +271,7 @@ class _RepeatArrowButtonState extends State<_RepeatArrowButton> {
         onTapCancel: _cancelRepeat,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 1, horizontal: 4),
-          child: Icon(widget.icon, size: 18),
+          child: Icon(widget.icon, size: 40),
         ),
       ),
     );

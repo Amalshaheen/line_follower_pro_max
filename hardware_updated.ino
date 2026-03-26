@@ -35,6 +35,9 @@ int whiteValues[12];
 // --- Logic Variables ---
 float error = 0, lastError = 0, integral = 0;
 bool motorRunning = false;
+bool autoStopOnFinish = true;
+bool lineLostRecoveryEnabled = true;
+bool finishReportedForCurrentRun = false;
 
 // --- Timer Variables for Finish Line ---
 unsigned long runStartTime = 0;
@@ -224,6 +227,16 @@ void handleCommand(String cmd) {
     }
   }
 
+  else if (cmd.startsWith("AUTOSTOP=")) {
+    autoStopOnFinish = cmd.substring(9).toInt() != 0;
+    SerialBT.println("ACK:AUTOSTOP=" + String(autoStopOnFinish ? 1 : 0));
+  }
+
+  else if (cmd.startsWith("LINELOST=")) {
+    lineLostRecoveryEnabled = cmd.substring(9).toInt() != 0;
+    SerialBT.println("ACK:LINELOST=" + String(lineLostRecoveryEnabled ? 1 : 0));
+  }
+
   else if (cmd == "THRESH?") {
     sendThresholdsToApp();
   }
@@ -282,16 +295,19 @@ void calculatePID() {
         isTimingBlack = true;
         blackDetectStartTime = millis();
       } else if (millis() - blackDetectStartTime > requiredBlackTime) {
-        // We have been on full black continuously for over 100ms! It's the finish.
-        trackFinished = true;
-        runtime = millis() - runStartTime;  // Calculate elapsed time
-        
-        // *** KEY CHANGE: Automatically stop the robot and notify the app ***
-        motorRunning = false;
-        driveMotors(0, 0);
-        SerialBT.println("TRACK_FINISHED");
-        
-        return;  // Exit the function immediately
+        // We have been on full black continuously for over 100ms.
+        if (!finishReportedForCurrentRun) {
+          trackFinished = true;
+          runtime = millis() - runStartTime;
+          finishReportedForCurrentRun = true;
+          SerialBT.println("TRACK_FINISHED");
+        }
+
+        if (autoStopOnFinish) {
+          motorRunning = false;
+          driveMotors(0, 0);
+          return;
+        }
       }
     }
 
@@ -313,6 +329,11 @@ void calculatePID() {
                 constrain(BASE_SPEED - adjustment, 0, MAX_SPEED));
   } else {
     // The bot has lost the line (count == 0).
+    if (!lineLostRecoveryEnabled) {
+      driveMotors(0, 0);
+      return;
+    }
+
     // Use a controlled search speed to prevent overshooting the line.
     int searchSpeed = BASE_SPEED;
 
@@ -357,6 +378,7 @@ void startRun() {
   lastError = 0;
   runtime = 0;  // Reset runtime to 0 at start
   trackFinished = false;
+  finishReportedForCurrentRun = false;
 
   SerialBT.println("Robot Started");
 }
@@ -366,10 +388,12 @@ void stopRun() {
   driveMotors(0, 0);
   integral = 0;
   lastError = 0;
+  if (runStartTime > 0 && runtime == 0) {
+    runtime = millis() - runStartTime;
+  }
 
   // Only send "Robot Stopped" if it was a manual stop (not auto-finish)
   if (!trackFinished) {
-    runtime = 0;  // Manual stop, no time recorded
     SerialBT.println("Robot Stopped");
   }
 }

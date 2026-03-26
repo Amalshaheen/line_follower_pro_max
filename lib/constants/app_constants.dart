@@ -39,6 +39,8 @@ class AppConstants {
   static const String cmdQueryThresholds = 'THRESH?';
   static const String cmdThresholdAllPrefix = 'THRALL=';
   static const String cmdThresholdSinglePrefix = 'THR=';
+  static const String cmdAutoStopPrefix = 'AUTOSTOP=';
+  static const String cmdLineLostRecoveryPrefix = 'LINELOST=';
 
   // Response prefixes from hardware
   static const String respSensors = 'SENSORS:';

@@ -8,6 +8,10 @@ class ControlSummaryCard extends StatelessWidget {
   final bool trackFinished;
   final int runtime; // Runtime in milliseconds
   final VoidCallback onStartStop;
+  final bool autoStopOnFinish;
+  final bool lineLostRecoveryEnabled;
+  final ValueChanged<bool>? onAutoStopChanged;
+  final ValueChanged<bool>? onLineLostRecoveryChanged;
 
   const ControlSummaryCard({
     super.key,
@@ -15,6 +19,10 @@ class ControlSummaryCard extends StatelessWidget {
     this.trackFinished = false,
     this.runtime = 0,
     required this.onStartStop,
+    this.autoStopOnFinish = true,
+    this.lineLostRecoveryEnabled = true,
+    this.onAutoStopChanged,
+    this.onLineLostRecoveryChanged,
   });
 
   /// Format runtime as mm:ss.ms
@@ -93,6 +101,38 @@ class ControlSummaryCard extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      const Text('Auto stop on finish'),
+                      const Spacer(),
+                      Switch(
+                        value: autoStopOnFinish,
+                        onChanged: onAutoStopChanged,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Row(
+                    children: [
+                      const Text('Line-lost return'),
+                      const Spacer(),
+                      Switch(
+                        value: lineLostRecoveryEnabled,
+                        onChanged: onLineLostRecoveryChanged,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),

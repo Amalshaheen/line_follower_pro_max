@@ -31,6 +31,10 @@ class _DashboardPageState extends State<DashboardPage> {
   );
   bool showAnalogSensors = false;
   bool isCalibrationMode = false;
+  bool autoStopOnFinish = true;
+  bool lineLostRecoveryEnabled = true;
+  DateTime? _currentRunStartedAt;
+  bool _currentRunSaved = false;
 
   // PID values - these are the effective values sent to hardware
   double kp = AppConstants.defaultKp;
@@ -42,6 +46,9 @@ class _DashboardPageState extends State<DashboardPage> {
   );
   late TextEditingController baseSpeedController = TextEditingController(
     text: AppConstants.defaultBaseSpeed.toString(),
+  );
+  late TextEditingController allThresholdController = TextEditingController(
+    text: AppConstants.defaultThreshold.toString(),
   );
   late List<int> sensorThresholds = List<int>.filled(
     AppConstants.sensorCount,
@@ -89,6 +96,7 @@ class _DashboardPageState extends State<DashboardPage> {
         sensorThresholds =
             savedSensorThresholds ??
             List<int>.filled(AppConstants.sensorCount, loaded.threshold);
+        allThresholdController.text = loaded.threshold.toString();
       }
     });
   }
@@ -106,6 +114,7 @@ class _DashboardPageState extends State<DashboardPage> {
   void dispose() {
     maxSpeedController.dispose();
     baseSpeedController.dispose();
+    allThresholdController.dispose();
     bluetoothService.dispose();
     super.dispose();
   }
@@ -121,6 +130,8 @@ class _DashboardPageState extends State<DashboardPage> {
               isRunning = true;
               trackFinished = false;
               runtime = 0;
+              _currentRunStartedAt = DateTime.now();
+              _currentRunSaved = false;
             } else if (line == 'Robot Stopped') {
               isRunning = false;
             }
@@ -146,7 +157,9 @@ class _DashboardPageState extends State<DashboardPage> {
         if (mounted) {
           setState(() {
             trackFinished = true;
-            isRunning = false;
+            if (autoStopOnFinish) {
+              isRunning = false;
+            }
             if (runtimeMs > 0) {
               runtime = runtimeMs;
             }
@@ -157,18 +170,34 @@ class _DashboardPageState extends State<DashboardPage> {
             bluetoothService.sendCommand(AppConstants.cmdQueryTime);
           } else {
             // Save the successful run to history
-            _saveRunToHistory(runtimeMs);
+            if (!_currentRunSaved) {
+              _currentRunSaved = true;
+              _saveRunToHistory(runtimeMs);
+            }
           }
         }
       },
       onAckReceived: (command, value) {
         debugPrint('✅ [DASHBOARD] ACK received: $command=$value');
-        // Can be used to confirm settings were applied
+        if (!mounted) {
+          return;
+        }
+        if (command == 'BASE') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              duration: const Duration(milliseconds: 900),
+              content: Text('Base speed confirmed: $value'),
+            ),
+          );
+        }
       },
       onThresholdsReceived: (thresholds) {
         if (mounted && thresholds.length == AppConstants.sensorCount) {
+          final average =
+              thresholds.reduce((a, b) => a + b) ~/ thresholds.length;
           setState(() {
             sensorThresholds = thresholds;
+            allThresholdController.text = average.toString();
           });
           debugPrint(
             '🎚️ [DASHBOARD] Thresholds synced: ${thresholds.join(', ')}',
@@ -233,6 +262,12 @@ class _DashboardPageState extends State<DashboardPage> {
           btStatus =
               'Connected to ${selectedDevice!.name ?? selectedDevice!.address}';
           bluetoothService.sendCommand(AppConstants.cmdQueryThresholds);
+          bluetoothService.sendCommand(
+            '${AppConstants.cmdAutoStopPrefix}${autoStopOnFinish ? 1 : 0}',
+          );
+          bluetoothService.sendCommand(
+            '${AppConstants.cmdLineLostRecoveryPrefix}${lineLostRecoveryEnabled ? 1 : 0}',
+          );
         } else {
           btStatus = 'Failed to connect';
         }
@@ -370,20 +405,116 @@ class _DashboardPageState extends State<DashboardPage> {
     await _loadHistory();
   }
 
-  void _handleStartStop() {
-    final newRunning = !isRunning;
-    setState(() {
-      isRunning = newRunning;
-      if (newRunning) {
+  Future<bool?> _showSaveRunDialog({required int runtimeMs}) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Save This Run?'),
+        content: Text('Runtime: ${(runtimeMs / 1000).toStringAsFixed(2)}s'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  int _currentElapsedRuntimeMs() {
+    final startedAt = _currentRunStartedAt;
+    if (startedAt == null) {
+      return runtime;
+    }
+    final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
+    return elapsed > 0 ? elapsed : runtime;
+  }
+
+  Future<void> _handleStartStop() async {
+    if (!isRunning) {
+      setState(() {
+        isRunning = true;
         trackFinished = false;
         runtime = 0;
-      }
+      });
+      _currentRunStartedAt = DateTime.now();
+      _currentRunSaved = false;
+      debugPrint('▶️  [APP] Robot STARTED');
+      bluetoothService.sendCommand(AppConstants.cmdRunStart);
+      return;
+    }
+
+    final elapsed = _currentElapsedRuntimeMs();
+    final shouldAskSave = elapsed > 0 && !_currentRunSaved;
+
+    setState(() {
+      isRunning = false;
+      runtime = elapsed;
     });
-    debugPrint('▶️  [APP] Robot ${newRunning ? 'STARTED' : 'STOPPED'}');
-    final command = newRunning
-        ? AppConstants.cmdRunStart
-        : AppConstants.cmdRunStop;
-    bluetoothService.sendCommand(command);
+    debugPrint('⏹️  [APP] Robot STOPPED');
+    bluetoothService.sendCommand(AppConstants.cmdRunStop);
+
+    if (!shouldAskSave || !mounted) {
+      return;
+    }
+
+    final shouldSave = await _showSaveRunDialog(runtimeMs: elapsed);
+    if (!mounted) {
+      return;
+    }
+
+    if (shouldSave == true) {
+      _currentRunSaved = true;
+      await _saveRunToHistory(elapsed);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Run saved to history')));
+    } else {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Run discarded')));
+    }
+  }
+
+  void _handleAutoStopChanged(bool enabled) {
+    setState(() => autoStopOnFinish = enabled);
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdAutoStopPrefix}${enabled ? 1 : 0}',
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(milliseconds: 900),
+        content: Text(
+          enabled
+              ? 'Auto-stop on finish enabled'
+              : 'Auto-stop on finish disabled',
+        ),
+      ),
+    );
+  }
+
+  void _handleLineLostRecoveryChanged(bool enabled) {
+    setState(() => lineLostRecoveryEnabled = enabled);
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdLineLostRecoveryPrefix}${enabled ? 1 : 0}',
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(milliseconds: 900),
+        content: Text(
+          enabled
+              ? 'Line-lost recovery enabled'
+              : 'Line-lost recovery disabled',
+        ),
+      ),
+    );
   }
 
   void _handlePChanged(double value) {
@@ -423,6 +554,21 @@ class _DashboardPageState extends State<DashboardPage> {
   void _handleSensorThresholdCommit(int index, int value) {
     _handleSensorThresholdPreview(index, value);
     bluetoothService.sendThresholdForSensor(index: index, threshold: value);
+  }
+
+  void _handleAllSensorThresholdCommit(int value) {
+    final normalized = value.clamp(0, 4095);
+    setState(() {
+      sensorThresholds = List<int>.filled(AppConstants.sensorCount, normalized);
+      allThresholdController.text = normalized.toString();
+    });
+    bluetoothService.sendThresholdForAllSensors(normalized);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(milliseconds: 900),
+        content: Text('All thresholds set to $normalized'),
+      ),
+    );
   }
 
   Future<void> _handleSaveCalibration() async {
@@ -545,6 +691,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 onCalibrationModeChanged: _handleCalibrationModeChanged,
                 onSensorThresholdPreview: _handleSensorThresholdPreview,
                 onSensorThresholdCommit: _handleSensorThresholdCommit,
+                onAllSensorThresholdCommit: _handleAllSensorThresholdCommit,
                 onSaveCalibration: _handleSaveCalibration,
               ),
               const SizedBox(height: 12),
@@ -552,7 +699,13 @@ class _DashboardPageState extends State<DashboardPage> {
                 isRunning: isRunning,
                 trackFinished: trackFinished,
                 runtime: runtime,
-                onStartStop: _handleStartStop,
+                autoStopOnFinish: autoStopOnFinish,
+                lineLostRecoveryEnabled: lineLostRecoveryEnabled,
+                onAutoStopChanged: _handleAutoStopChanged,
+                onLineLostRecoveryChanged: _handleLineLostRecoveryChanged,
+                onStartStop: () {
+                  _handleStartStop();
+                },
               ),
               const SizedBox(height: 12),
               PidCard(
@@ -585,6 +738,12 @@ class _DashboardPageState extends State<DashboardPage> {
                   final command =
                       '${AppConstants.cmdBaseSpeedPrefix}$baseSpeed';
                   bluetoothService.sendCommand(command);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      duration: const Duration(milliseconds: 900),
+                      content: Text('Base speed set to $baseSpeed'),
+                    ),
+                  );
                 },
                 onResetDefaults: _handleResetSpeedThresholdDefaults,
               ),

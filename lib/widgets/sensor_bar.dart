@@ -15,10 +15,6 @@ class SensorBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('🎨 [SENSOR_BAR] Building with ${sensorOnLine.length} sensors');
-    if (sensorOnLine.isNotEmpty) {
-      debugPrint('   └─ Values: ${sensorOnLine.map((s) => s ? 'ON(🟢)' : 'OFF(⚫)').join(' ')}');
-    }
     
     if (sensorOnLine.isEmpty) {
       return Container(
@@ -72,7 +68,6 @@ class SensorBar extends StatelessWidget {
 
   Widget _buildAnalogView(BuildContext context) {
     // Find max value for scaling (use 1023 as typical ADC max, or actual max)
-    const maxValue = 1023;
     
     return Container(
       height: 80,
@@ -86,10 +81,10 @@ class SensorBar extends StatelessWidget {
         children: List.generate(
           sensorOnLine.length,
           (index) {
-            final rawValue = index < sensorRawValues.length 
+            final rawValue = 
+            index < sensorRawValues.length 
                 ? sensorRawValues[index] 
                 : 0;
-            final normalizedHeight = (rawValue / maxValue).clamp(0.0, 1.0);
             final isOn = sensorOnLine[index];
             
             return Expanded(
@@ -114,7 +109,7 @@ class SensorBar extends StatelessWidget {
                       child: Align(
                         alignment: Alignment.bottomCenter,
                         child: FractionallySizedBox(
-                          heightFactor: normalizedHeight.clamp(0.05, 1.0),
+                          heightFactor: (rawValue/4095).clamp(0.05, 1.0),
                           child: Container(
                             decoration: BoxDecoration(
                               color: isOn 

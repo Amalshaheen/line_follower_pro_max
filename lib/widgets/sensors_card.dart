@@ -13,6 +13,7 @@ class SensorsCard extends StatelessWidget {
   final ValueChanged<bool>? onCalibrationModeChanged;
   final void Function(int index, int value)? onSensorThresholdPreview;
   final void Function(int index, int value)? onSensorThresholdCommit;
+  final void Function(int value)? onAllSensorThresholdCommit;
   final VoidCallback? onSaveCalibration;
 
   const SensorsCard({
@@ -26,6 +27,7 @@ class SensorsCard extends StatelessWidget {
     this.onCalibrationModeChanged,
     this.onSensorThresholdPreview,
     this.onSensorThresholdCommit,
+    this.onAllSensorThresholdCommit,
     this.onSaveCalibration,
   });
 
@@ -94,6 +96,7 @@ class SensorsCard extends StatelessWidget {
                         sensorThresholds: sensorThresholds,
                         onSensorThresholdPreview: onSensorThresholdPreview,
                         onSensorThresholdCommit: onSensorThresholdCommit,
+                        onAllSensorThresholdCommit: onAllSensorThresholdCommit,
                         onSaveCalibration: onSaveCalibration,
                       ),
                     )
@@ -106,11 +109,12 @@ class SensorsCard extends StatelessWidget {
   }
 }
 
-class _CalibrationPanel extends StatelessWidget {
+class _CalibrationPanel extends StatefulWidget {
   final List<int> sensorRawValues;
   final List<int> sensorThresholds;
   final void Function(int index, int value)? onSensorThresholdPreview;
   final void Function(int index, int value)? onSensorThresholdCommit;
+  final void Function(int value)? onAllSensorThresholdCommit;
   final VoidCallback? onSaveCalibration;
 
   const _CalibrationPanel({
@@ -118,8 +122,41 @@ class _CalibrationPanel extends StatelessWidget {
     required this.sensorThresholds,
     this.onSensorThresholdPreview,
     this.onSensorThresholdCommit,
+    this.onAllSensorThresholdCommit,
     this.onSaveCalibration,
   });
+
+  @override
+  State<_CalibrationPanel> createState() => _CalibrationPanelState();
+}
+
+class _CalibrationPanelState extends State<_CalibrationPanel> {
+  late final TextEditingController _allThresholdController;
+
+  @override
+  void initState() {
+    super.initState();
+    _allThresholdController = TextEditingController(
+      text: widget.sensorThresholds.isNotEmpty
+          ? widget.sensorThresholds.first.toString()
+          : AppConstants.defaultThreshold.toString(),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _CalibrationPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sensorThresholds != widget.sensorThresholds &&
+        widget.sensorThresholds.isNotEmpty) {
+      _allThresholdController.text = widget.sensorThresholds.first.toString();
+    }
+  }
+
+  @override
+  void dispose() {
+    _allThresholdController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -133,15 +170,44 @@ class _CalibrationPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Calibration mode: drag each slider up/down, release to send to hardware',
-            style: Theme.of(context).textTheme.bodySmall,
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _allThresholdController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                    labelText: 'All thresholds',
+                  ),
+                  onSubmitted: (value) {
+                    final parsed = int.tryParse(value.trim());
+                    if (parsed != null) {
+                      widget.onAllSensorThresholdCommit?.call(parsed);
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () {
+                  final parsed = int.tryParse(
+                    _allThresholdController.text.trim(),
+                  );
+                  if (parsed != null) {
+                    widget.onAllSensorThresholdCommit?.call(parsed);
+                  }
+                },
+                child: const Text('Set All'),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton.icon(
-              onPressed: onSaveCalibration,
+              onPressed: widget.onSaveCalibration,
               icon: const Icon(Icons.save_rounded, size: 18),
               label: const Text('Save Calibration'),
             ),
@@ -154,19 +220,19 @@ class _CalibrationPanel extends StatelessWidget {
               itemCount: AppConstants.sensorCount,
               separatorBuilder: (_, _) => const SizedBox(width: 8),
               itemBuilder: (context, index) {
-                final threshold = index < sensorThresholds.length
-                    ? sensorThresholds[index]
+                final threshold = index < widget.sensorThresholds.length
+                    ? widget.sensorThresholds[index]
                     : AppConstants.defaultThreshold;
-                final rawValue = index < sensorRawValues.length
-                    ? sensorRawValues[index]
+                final rawValue = index < widget.sensorRawValues.length
+                    ? widget.sensorRawValues[index]
                     : 0;
 
                 return _SensorThresholdSlider(
                   sensorIndex: index,
                   threshold: threshold,
                   rawValue: rawValue,
-                  onPreview: onSensorThresholdPreview,
-                  onCommit: onSensorThresholdCommit,
+                  onPreview: widget.onSensorThresholdPreview,
+                  onCommit: widget.onSensorThresholdCommit,
                 );
               },
             ),
@@ -177,7 +243,7 @@ class _CalibrationPanel extends StatelessWidget {
   }
 }
 
-class _SensorThresholdSlider extends StatelessWidget {
+class _SensorThresholdSlider extends StatefulWidget {
   final int sensorIndex;
   final int threshold;
   final int rawValue;
@@ -193,51 +259,103 @@ class _SensorThresholdSlider extends StatelessWidget {
   });
 
   @override
+  State<_SensorThresholdSlider> createState() => _SensorThresholdSliderState();
+}
+
+class _SensorThresholdSliderState extends State<_SensorThresholdSlider> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.threshold.toString());
+  }
+
+  @override
+  void didUpdateWidget(covariant _SensorThresholdSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.threshold != widget.threshold) {
+      _controller.text = widget.threshold.toString();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isOnLine = rawValue > threshold;
+    final isOnLine = widget.rawValue > widget.threshold;
 
     return Container(
       width: 64,
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      padding: const EdgeInsets.only(top: 4),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Theme.of(context).dividerColor),
       ),
-      child: Column(
-        children: [
-          Text('S$sensorIndex', style: Theme.of(context).textTheme.labelSmall),
-          const SizedBox(height: 4),
-          Expanded(
-            child: RotatedBox(
-              quarterTurns: 3,
-              child: SliderTheme(
-                data: SliderTheme.of(context).copyWith(trackHeight: 6),
-                child: Slider(
-                  min: 0,
-                  max: 4095,
-                  divisions: 4095,
-                  value: threshold.clamp(0, 4095).toDouble(),
-                  onChanged: (value) {
-                    onPreview?.call(sensorIndex, value.round());
-                  },
-                  onChangeEnd: (value) {
-                    onCommit?.call(sensorIndex, value.round());
-                  },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(7),
+        child: Column(
+          children: [
+            Text(
+              'S${widget.sensorIndex}',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+            Expanded(
+              child: RotatedBox(
+                quarterTurns: 3,
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(trackHeight: 10),
+                  child: Slider(
+                    min: 0,
+                    max: 4100,
+                    divisions: 41,
+                    value: widget.threshold.clamp(0, 4095).toDouble(),
+                    onChanged: (value) {
+                      widget.onPreview?.call(widget.sensorIndex, value.round());
+                    },
+                    onChangeEnd: (value) {
+                      widget.onCommit?.call(widget.sensorIndex, value.round());
+                    },
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text('T:$threshold', style: Theme.of(context).textTheme.labelSmall),
-          Text('R:$rawValue', style: Theme.of(context).textTheme.labelSmall),
-          const SizedBox(height: 2),
-          Icon(
-            isOnLine ? Icons.circle : Icons.circle_outlined,
-            size: 12,
-            color: isOnLine ? Colors.green : Colors.grey,
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: TextField(
+                controller: _controller,
+                textAlign: TextAlign.center,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 6,
+                  ),
+                ),
+                style: Theme.of(context).textTheme.labelSmall,
+                onSubmitted: (value) {
+                  final parsed = int.tryParse(value.trim());
+                  if (parsed != null) {
+                    widget.onCommit?.call(widget.sensorIndex, parsed);
+                  }
+                },
+              ),
+            ),
+            const SizedBox(height: 4),
+            SizedBox(
+              height: 12,
+              width: double.infinity,
+              child: ColoredBox(color: isOnLine ? Colors.black : Colors.grey),
+            ),
+          ],
+        ),
       ),
     );
   }
