@@ -3,7 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// Digit-wise editor for PID values with fixed 2 decimal places.
+/// Digit-wise editor for PID values with fixed 3 decimal places.
 class PidDigitEditorRow extends StatefulWidget {
   final String title;
   final double value;
@@ -29,7 +29,7 @@ class _PidDigitEditorRowState extends State<PidDigitEditorRow> {
   void initState() {
     super.initState();
     _valueController = TextEditingController(
-      text: _clampAndRound(widget.value).toStringAsFixed(2),
+      text: _clampAndRound(widget.value).toStringAsFixed(3),
     );
   }
 
@@ -37,7 +37,7 @@ class _PidDigitEditorRowState extends State<PidDigitEditorRow> {
   void didUpdateWidget(covariant PidDigitEditorRow oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.value != widget.value) {
-      _valueController.text = _clampAndRound(widget.value).toStringAsFixed(2);
+      _valueController.text = _clampAndRound(widget.value).toStringAsFixed(3);
     }
   }
 
@@ -49,12 +49,12 @@ class _PidDigitEditorRowState extends State<PidDigitEditorRow> {
 
   double _maxValue() {
     final intMax = math.pow(10, 3).toDouble() - 1;
-    return intMax + 0.99;
+    return intMax + 0.999;
   }
 
   double _clampAndRound(double candidate) {
     final clamped = candidate.clamp(0.0, _maxValue());
-    return ((clamped * 100).round()) / 100;
+    return ((clamped * 1000).round()) / 1000;
   }
 
   void _applyStep(double step) {
@@ -64,7 +64,7 @@ class _PidDigitEditorRowState extends State<PidDigitEditorRow> {
   void _commitManualValue() {
     final parsed = double.tryParse(_valueController.text.trim());
     if (parsed == null) {
-      _valueController.text = _clampAndRound(widget.value).toStringAsFixed(2);
+      _valueController.text = _clampAndRound(widget.value).toStringAsFixed(3);
       return;
     }
     widget.onChanged(_clampAndRound(parsed));
@@ -73,7 +73,7 @@ class _PidDigitEditorRowState extends State<PidDigitEditorRow> {
   @override
   Widget build(BuildContext context) {
     final normalized = _clampAndRound(widget.value);
-    final parts = normalized.toStringAsFixed(2).split('.');
+    final parts = normalized.toStringAsFixed(3).split('.');
     final intPart = parts[0].padLeft(3, '0');
     final decPart = parts[1];
     final accent = widget.accentColor ?? Theme.of(context).colorScheme.primary;
@@ -130,12 +130,18 @@ class _PidDigitEditorRowState extends State<PidDigitEditorRow> {
                     onIncrement: () => _applyStep(0.01),
                     onDecrement: () => _applyStep(-0.01),
                   ),
+                  _DigitStepCell(
+                    digit: decPart[2],
+                    accentColor: accent,
+                    onIncrement: () => _applyStep(0.001),
+                    onDecrement: () => _applyStep(-0.001),
+                  ),
                 ],
               ),
             ),
             const SizedBox(width: 8),
             SizedBox(
-              width: 88,
+              width: 70,
               child: TextField(
                 controller: _valueController,
                 textAlign: TextAlign.center,
@@ -146,8 +152,8 @@ class _PidDigitEditorRowState extends State<PidDigitEditorRow> {
                   isDense: true,
                   border: OutlineInputBorder(),
                   contentPadding: EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
+                    horizontal: 4,
+                    vertical: 4,
                   ),
                 ),
                 style: Theme.of(
@@ -180,7 +186,7 @@ class _DigitStepCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 50,
+      width: 35,
       padding: const EdgeInsets.symmetric(vertical: 2),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -271,7 +277,7 @@ class _RepeatArrowButtonState extends State<_RepeatArrowButton> {
         onTapCancel: _cancelRepeat,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 1, horizontal: 4),
-          child: Icon(widget.icon, size: 40),
+          child: Icon(widget.icon, size: 26),
         ),
       ),
     );
