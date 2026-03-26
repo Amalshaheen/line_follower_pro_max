@@ -1,0 +1,53 @@
+name: Release APK on Feat Commit
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    # Run only when at least one pushed commit message contains feat/Feat.
+    if: contains(join(github.event.commits.*.message, ' '), 'feat') || contains(join(github.event.commits.*.message, ' '), 'Feat')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Generate release metadata
+        id: meta
+        run: |
+          TAG="feat-$(date +'%Y%m%d-%H%M%S')-${GITHUB_SHA::7}"
+          APK_NAME="line_follower_pro_max-${TAG}.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/${APK_NAME}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "apk=build/app/outputs/flutter-apk/${APK_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: Release ${{ steps.meta.outputs.tag }}
+          generate_release_notes: true
+          files: ${{ steps.meta.outputs.apk }}
