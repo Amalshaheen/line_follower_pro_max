@@ -5,7 +5,9 @@ import '../constants/app_constants.dart';
 import '../models/pid_run_history.dart';
 import '../services/bluetooth_service.dart';
 import '../services/history_service.dart';
+import '../services/settings_service.dart';
 import 'bluetooth_settings_page.dart';
+import 'settings_page.dart';
 
 /// Main dashboard screen for controlling the line follower robot.
 class DashboardPage extends StatefulWidget {
@@ -19,28 +21,37 @@ class _DashboardPageState extends State<DashboardPage> {
   bool isRunning = false;
   bool trackFinished = false;
   int runtime = 0; // Runtime in milliseconds
-  late List<bool> sensorOnLine = List<bool>.filled(AppConstants.sensorCount, false);
-  late List<int> sensorRawValues = List<int>.filled(AppConstants.sensorCount, 0);
+  late List<bool> sensorOnLine = List<bool>.filled(
+    AppConstants.sensorCount,
+    false,
+  );
+  late List<int> sensorRawValues = List<int>.filled(
+    AppConstants.sensorCount,
+    0,
+  );
   bool showAnalogSensors = false;
-  
+  bool isCalibrationMode = false;
+
   // PID values - these are the effective values sent to hardware
   double kp = AppConstants.defaultKp;
   double ki = AppConstants.defaultKi;
   double kd = AppConstants.defaultKd;
-  double pScale = AppConstants.defaultPScale;
-  double iScale = AppConstants.defaultIScale;
-  double dScale = AppConstants.defaultDScale;
 
-  late TextEditingController pController = TextEditingController(text: AppConstants.defaultKp.toStringAsFixed(2));
-  late TextEditingController iController = TextEditingController(text: AppConstants.defaultKi.toStringAsFixed(2));
-  late TextEditingController dController = TextEditingController(text: AppConstants.defaultKd.toStringAsFixed(2));
-  late TextEditingController maxSpeedController = TextEditingController(text: '255');
-  late TextEditingController baseSpeedController = TextEditingController(text: '150');
-  late TextEditingController thresholdAllController = TextEditingController(text: '2000');
-  late List<int> sensorThresholds = List<int>.filled(AppConstants.sensorCount, 2000);
+  late TextEditingController maxSpeedController = TextEditingController(
+    text: AppConstants.defaultMaxSpeed.toString(),
+  );
+  late TextEditingController baseSpeedController = TextEditingController(
+    text: AppConstants.defaultBaseSpeed.toString(),
+  );
+  late List<int> sensorThresholds = List<int>.filled(
+    AppConstants.sensorCount,
+    AppConstants.defaultThreshold,
+  );
 
   // History service and run history
   final HistoryService _historyService = HistoryService();
+  final SettingsService _settingsService = SettingsService();
+  AppSettings _defaultSettings = AppSettings.defaults();
   List<PidRunHistory> history = [];
 
   // Bluetooth related variables
@@ -55,7 +66,31 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     _initBluetooth();
+    _loadDefaultSettings(applyToCurrentControls: true);
     _loadHistory();
+  }
+
+  Future<void> _loadDefaultSettings({
+    required bool applyToCurrentControls,
+  }) async {
+    final loaded = await _settingsService.getSettings();
+    final savedSensorThresholds = await _settingsService.getSensorThresholds();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _defaultSettings = loaded;
+      if (applyToCurrentControls) {
+        kp = loaded.kp;
+        ki = loaded.ki;
+        kd = loaded.kd;
+        maxSpeedController.text = loaded.maxSpeed.toString();
+        baseSpeedController.text = loaded.baseSpeed.toString();
+        sensorThresholds =
+            savedSensorThresholds ??
+            List<int>.filled(AppConstants.sensorCount, loaded.threshold);
+      }
+    });
   }
 
   Future<void> _loadHistory() async {
@@ -69,12 +104,8 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   void dispose() {
-    pController.dispose();
-    iController.dispose();
-    dController.dispose();
     maxSpeedController.dispose();
     baseSpeedController.dispose();
-    thresholdAllController.dispose();
     bluetoothService.dispose();
     super.dispose();
   }
@@ -97,7 +128,9 @@ class _DashboardPageState extends State<DashboardPage> {
         }
       },
       onSensorDataReceived: (rawValues, onLine) {
-        debugPrint('✅ [DASHBOARD] onSensorDataReceived called with ${onLine.length} sensors');
+        debugPrint(
+          '✅ [DASHBOARD] onSensorDataReceived called with ${onLine.length} sensors',
+        );
         if (mounted && onLine.length == AppConstants.sensorCount) {
           debugPrint('   ✓ Check passed! Updating UI...');
           setState(() {
@@ -134,13 +167,12 @@ class _DashboardPageState extends State<DashboardPage> {
       },
       onThresholdsReceived: (thresholds) {
         if (mounted && thresholds.length == AppConstants.sensorCount) {
-          final average =
-              thresholds.reduce((a, b) => a + b) ~/ AppConstants.sensorCount;
           setState(() {
             sensorThresholds = thresholds;
-            thresholdAllController.text = average.toString();
           });
-          debugPrint('🎚️ [DASHBOARD] Thresholds synced: ${thresholds.join(', ')}');
+          debugPrint(
+            '🎚️ [DASHBOARD] Thresholds synced: ${thresholds.join(', ')}',
+          );
         }
       },
       onDisconnected: () {
@@ -167,7 +199,8 @@ class _DashboardPageState extends State<DashboardPage> {
         setState(() {
           isConnected = true;
           if (selectedDevice != null) {
-            btStatus = 'Connected to ${selectedDevice!.name ?? selectedDevice!.address}';
+            btStatus =
+                'Connected to ${selectedDevice!.name ?? selectedDevice!.address}';
           } else {
             btStatus = 'Connected';
           }
@@ -197,7 +230,8 @@ class _DashboardPageState extends State<DashboardPage> {
         isConnecting = false;
         if (success) {
           isConnected = true;
-          btStatus = 'Connected to ${selectedDevice!.name ?? selectedDevice!.address}';
+          btStatus =
+              'Connected to ${selectedDevice!.name ?? selectedDevice!.address}';
           bluetoothService.sendCommand(AppConstants.cmdQueryThresholds);
         } else {
           btStatus = 'Failed to connect';
@@ -254,21 +288,25 @@ class _DashboardPageState extends State<DashboardPage> {
     });
   }
 
-  double _effectivePidValue(double sliderValue, double scale) {
-    return sliderValue * 10 * scale;
-  }
-
-  double _getBaseValue(double currentValue, double scale) {
-    // Calculate base value (fixed part) based on current scale precision
-    final increment = 10 * scale;
-    return (currentValue / increment).floor() * increment;
-  }
-
-  double _getSliderPosition(double currentValue, double scale) {
-    // Calculate slider position to adjust only at current scale level
-    final baseValue = _getBaseValue(currentValue, scale);
-    final increment = 10 * scale;
-    return ((currentValue - baseValue) / increment).clamp(0.0, 1.0);
+  void _navigateToSettingsPage() {
+    Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SettingsPage(initialSettings: _defaultSettings),
+      ),
+    ).then((changed) {
+      if (changed == true) {
+        _loadDefaultSettings(applyToCurrentControls: false);
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Defaults saved. Use reset buttons to apply.'),
+          ),
+        );
+      }
+    });
   }
 
   // History management methods
@@ -291,22 +329,29 @@ class _DashboardPageState extends State<DashboardPage> {
       kp = run.kp;
       ki = run.ki;
       kd = run.kd;
-      pController.text = run.kp.toStringAsFixed(2);
-      iController.text = run.ki.toStringAsFixed(2);
-      dController.text = run.kd.toStringAsFixed(2);
       maxSpeedController.text = run.maxSpeed.toString();
       baseSpeedController.text = run.baseSpeed.toString();
     });
-    
+
     // Send all values to hardware
-    bluetoothService.sendCommand('${AppConstants.cmdKpPrefix}${run.kp.toStringAsFixed(2)}');
-    bluetoothService.sendCommand('${AppConstants.cmdKiPrefix}${run.ki.toStringAsFixed(2)}');
-    bluetoothService.sendCommand('${AppConstants.cmdKdPrefix}${run.kd.toStringAsFixed(2)}');
-    bluetoothService.sendCommand('${AppConstants.cmdMaxSpeedPrefix}${run.maxSpeed}');
-    bluetoothService.sendCommand('${AppConstants.cmdBaseSpeedPrefix}${run.baseSpeed}');
-    
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdKpPrefix}${run.kp.toStringAsFixed(2)}',
+    );
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdKiPrefix}${run.ki.toStringAsFixed(2)}',
+    );
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdKdPrefix}${run.kd.toStringAsFixed(2)}',
+    );
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdMaxSpeedPrefix}${run.maxSpeed}',
+    );
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdBaseSpeedPrefix}${run.baseSpeed}',
+    );
+
     debugPrint('🔄 [DASHBOARD] Configuration restored: ${run.pidSummary}');
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Configuration restored: ${run.pidSummary}'),
@@ -335,141 +380,122 @@ class _DashboardPageState extends State<DashboardPage> {
       }
     });
     debugPrint('▶️  [APP] Robot ${newRunning ? 'STARTED' : 'STOPPED'}');
-    final command = newRunning ? AppConstants.cmdRunStart : AppConstants.cmdRunStop;
+    final command = newRunning
+        ? AppConstants.cmdRunStart
+        : AppConstants.cmdRunStop;
     bluetoothService.sendCommand(command);
-  }
-
-  // Calibration methods
-  void _handleCalibrateBlack() {
-    debugPrint('📏 [APP] Starting BLACK calibration');
-    bluetoothService.sendCommand(AppConstants.cmdCalibrateBlack);
-  }
-
-  void _handleCalibrateWhite() {
-    debugPrint('📏 [APP] Starting WHITE calibration');
-    bluetoothService.sendCommand(AppConstants.cmdCalibrateWhite);
   }
 
   void _handlePChanged(double value) {
     setState(() {
-      final baseValue = _getBaseValue(double.tryParse(pController.text) ?? kp, pScale);
-      final newEffectiveValue = baseValue + _effectivePidValue(value, pScale);
-      kp = newEffectiveValue;
-      pController.text = newEffectiveValue.toStringAsFixed(2);
-    });
-  }
-
-  void _handlePChangeEnd(double value) {
-    final effectiveKp = double.tryParse(pController.text) ?? kp;
-    final command = '${AppConstants.cmdKpPrefix}${effectiveKp.toStringAsFixed(2)}';
-    debugPrint('📊 [APP] Kp value changed to ${effectiveKp.toStringAsFixed(2)}, sending: $command');
-    bluetoothService.sendCommand(command);
-  }
-
-  void _handlePSubmitted(String input) {
-    final newKp = double.tryParse(input) ?? kp;
-    setState(() {
-      kp = newKp;
-      pController.text = newKp.toStringAsFixed(2);
-    });
-    final command = '${AppConstants.cmdKpPrefix}${newKp.toStringAsFixed(2)}';
-    debugPrint('📊 [APP] Kp value submitted as ${newKp.toStringAsFixed(2)}, sending: $command');
-    bluetoothService.sendCommand(command);
-  }
-
-  void _handlePScaleChanged(double newScale) {
-    setState(() {
-      pScale = newScale;
+      kp = value;
     });
   }
 
   void _handleIChanged(double value) {
     setState(() {
-      final baseValue = _getBaseValue(double.tryParse(iController.text) ?? ki, iScale);
-      final newEffectiveValue = baseValue + _effectivePidValue(value, iScale);
-      ki = newEffectiveValue;
-      iController.text = newEffectiveValue.toStringAsFixed(2);
-    });
-  }
-
-  void _handleIChangeEnd(double value) {
-    final effectiveKi = double.tryParse(iController.text) ?? ki;
-    final command = '${AppConstants.cmdKiPrefix}${effectiveKi.toStringAsFixed(2)}';
-    debugPrint('📊 [APP] Ki value changed to ${effectiveKi.toStringAsFixed(2)}, sending: $command');
-    bluetoothService.sendCommand(command);
-  }
-
-  void _handleISubmitted(String input) {
-    final newKi = double.tryParse(input) ?? ki;
-    setState(() {
-      ki = newKi;
-      iController.text = newKi.toStringAsFixed(2);
-    });
-    final command = '${AppConstants.cmdKiPrefix}${newKi.toStringAsFixed(2)}';
-    debugPrint('📊 [APP] Ki value submitted as ${newKi.toStringAsFixed(2)}, sending: $command');
-    bluetoothService.sendCommand(command);
-  }
-
-  void _handleIScaleChanged(double newScale) {
-    setState(() {
-      iScale = newScale;
+      ki = value;
     });
   }
 
   void _handleDChanged(double value) {
     setState(() {
-      final baseValue = _getBaseValue(double.tryParse(dController.text) ?? kd, dScale);
-      final newEffectiveValue = baseValue + _effectivePidValue(value, dScale);
-      kd = newEffectiveValue;
-      dController.text = newEffectiveValue.toStringAsFixed(2);
+      kd = value;
     });
   }
 
-  void _handleDChangeEnd(double value) {
-    final effectiveKd = double.tryParse(dController.text) ?? kd;
-    final command = '${AppConstants.cmdKdPrefix}${effectiveKd.toStringAsFixed(2)}';
-    debugPrint('📊 [APP] Kd value changed to ${effectiveKd.toStringAsFixed(2)}, sending: $command');
-    bluetoothService.sendCommand(command);
+  void _handleCalibrationModeChanged(bool enabled) {
+    setState(() => isCalibrationMode = enabled);
+    if (enabled) {
+      bluetoothService.sendCommand(AppConstants.cmdQueryThresholds);
+    }
   }
 
-  void _handleDSubmitted(String input) {
-    final newKd = double.tryParse(input) ?? kd;
-    setState(() {
-      kd = newKd;
-      dController.text = newKd.toStringAsFixed(2);
-    });
-    final command = '${AppConstants.cmdKdPrefix}${newKd.toStringAsFixed(2)}';
-    debugPrint('📊 [APP] Kd value submitted as ${newKd.toStringAsFixed(2)}, sending: $command');
-    bluetoothService.sendCommand(command);
-  }
-
-  void _handleDScaleChanged(double newScale) {
-    setState(() {
-      dScale = newScale;
-    });
-  }
-
-  void _handleThresholdAllSend() {
-    final threshold = int.tryParse(thresholdAllController.text.trim());
-    if (threshold == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid threshold value')),
-      );
+  void _handleSensorThresholdPreview(int index, int value) {
+    if (index < 0 || index >= sensorThresholds.length) {
       return;
     }
-    final sent = bluetoothService.sendThresholdForAllSensors(threshold);
-    if (sent) {
-      setState(() {
-        sensorThresholds = List<int>.filled(AppConstants.sensorCount, threshold);
-      });
-      debugPrint('🎚️ [DASHBOARD] Sent all-sensor threshold: $threshold');
+    setState(() {
+      sensorThresholds[index] = value;
+    });
+  }
+
+  void _handleSensorThresholdCommit(int index, int value) {
+    _handleSensorThresholdPreview(index, value);
+    bluetoothService.sendThresholdForSensor(index: index, threshold: value);
+  }
+
+  Future<void> _handleSaveCalibration() async {
+    await _settingsService.saveSensorThresholds(sensorThresholds);
+    if (!mounted) {
+      return;
     }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        duration: Duration(milliseconds: 900),
+        content: Text('Calibration values saved'),
+      ),
+    );
+  }
+
+  void _handlePidSend() {
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdKpPrefix}${kp.toStringAsFixed(2)}',
+    );
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdKiPrefix}${ki.toStringAsFixed(2)}',
+    );
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdKdPrefix}${kd.toStringAsFixed(2)}',
+    );
+
+    debugPrint(
+      '📤 [APP] PID sent: Kp=${kp.toStringAsFixed(2)}, Ki=${ki.toStringAsFixed(2)}, Kd=${kd.toStringAsFixed(2)}',
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(milliseconds: 900),
+        content: Text(
+          'PID sent: P ${kp.toStringAsFixed(2)} | I ${ki.toStringAsFixed(2)} | D ${kd.toStringAsFixed(2)}',
+        ),
+      ),
+    );
+  }
+
+  void _handleResetPidDefaults() {
+    setState(() {
+      kp = _defaultSettings.kp;
+      ki = _defaultSettings.ki;
+      kd = _defaultSettings.kd;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        duration: Duration(milliseconds: 800),
+        content: Text('PID reset to saved defaults'),
+      ),
+    );
+  }
+
+  void _handleResetSpeedThresholdDefaults() {
+    setState(() {
+      maxSpeedController.text = _defaultSettings.maxSpeed.toString();
+      baseSpeedController.text = _defaultSettings.baseSpeed.toString();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        duration: Duration(milliseconds: 800),
+        content: Text('Speed reset to saved defaults'),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('🏗️ [DASHBOARD] Building... current sensorOnLine: length=${sensorOnLine.length}, values=${sensorOnLine.map((s) => s ? 'ON' : 'OFF').join(',')}');
-    
+    debugPrint(
+      '🏗️ [DASHBOARD] Building... current sensorOnLine: length=${sensorOnLine.length}, values=${sensorOnLine.map((s) => s ? 'ON' : 'OFF').join(',')}',
+    );
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(AppConstants.appTitle),
@@ -495,6 +521,10 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
             ],
           ),
+          IconButton(
+            icon: const Icon(Icons.tune_rounded),
+            onPressed: _navigateToSettingsPage,
+          ),
         ],
       ),
       body: SafeArea(
@@ -507,9 +537,15 @@ class _DashboardPageState extends State<DashboardPage> {
                 sensorOnLine: sensorOnLine,
                 sensorRawValues: sensorRawValues,
                 showAnalog: showAnalogSensors,
+                isCalibrationMode: isCalibrationMode,
+                sensorThresholds: sensorThresholds,
                 onShowAnalogChanged: (value) {
                   setState(() => showAnalogSensors = value);
                 },
+                onCalibrationModeChanged: _handleCalibrationModeChanged,
+                onSensorThresholdPreview: _handleSensorThresholdPreview,
+                onSensorThresholdCommit: _handleSensorThresholdCommit,
+                onSaveCalibration: _handleSaveCalibration,
               ),
               const SizedBox(height: 12),
               ControlSummaryCard(
@@ -517,54 +553,40 @@ class _DashboardPageState extends State<DashboardPage> {
                 trackFinished: trackFinished,
                 runtime: runtime,
                 onStartStop: _handleStartStop,
-                onCalibrateBlack: _handleCalibrateBlack,
-                onCalibrateWhite: _handleCalibrateWhite,
               ),
               const SizedBox(height: 12),
               PidCard(
-                pValue: _getSliderPosition(kp, pScale),
-                iValue: _getSliderPosition(ki, iScale),
-                dValue: _getSliderPosition(kd, dScale),
-                pScale: pScale,
-                iScale: iScale,
-                dScale: dScale,
-                pController: pController,
-                iController: iController,
-                dController: dController,
-
+                pValue: kp,
+                iValue: ki,
+                dValue: kd,
                 onPChanged: _handlePChanged,
                 onIChanged: _handleIChanged,
                 onDChanged: _handleDChanged,
-                onPChangeEnd: _handlePChangeEnd,
-                onIChangeEnd: _handleIChangeEnd,
-                onDChangeEnd: _handleDChangeEnd,
-                onPSubmitted: _handlePSubmitted,
-                onISubmitted: _handleISubmitted,
-                onDSubmitted: _handleDSubmitted,
-                onPScaleChanged: _handlePScaleChanged,
-                onIScaleChanged: _handleIScaleChanged,
-                onDScaleChanged: _handleDScaleChanged,
+                onSendAll: _handlePidSend,
+                onResetDefaults: _handleResetPidDefaults,
               ),
               const SizedBox(height: 12),
               SpeedCard(
                 maxSpeedController: maxSpeedController,
                 baseSpeedController: baseSpeedController,
-                thresholdAllController: thresholdAllController,
-                thresholdInfoText:
-                    'Avg: ${sensorThresholds.reduce((a, b) => a + b) ~/ AppConstants.sensorCount} | First: ${sensorThresholds.first}',
                 onMaxSpeedSend: () {
                   final maxSpeed = maxSpeedController.text;
-                  debugPrint('⚡ [APP] Max Speed button pressed, value: $maxSpeed');
+                  debugPrint(
+                    '⚡ [APP] Max Speed button pressed, value: $maxSpeed',
+                  );
                   final command = '${AppConstants.cmdMaxSpeedPrefix}$maxSpeed';
                   bluetoothService.sendCommand(command);
                 },
                 onBaseSpeedSend: () {
                   final baseSpeed = baseSpeedController.text;
-                  debugPrint('⚡ [APP] Base Speed button pressed, value: $baseSpeed');
-                  final command = '${AppConstants.cmdBaseSpeedPrefix}$baseSpeed';
+                  debugPrint(
+                    '⚡ [APP] Base Speed button pressed, value: $baseSpeed',
+                  );
+                  final command =
+                      '${AppConstants.cmdBaseSpeedPrefix}$baseSpeed';
                   bluetoothService.sendCommand(command);
                 },
-                onThresholdAllSend: _handleThresholdAllSend,
+                onResetDefaults: _handleResetSpeedThresholdDefaults,
               ),
               const SizedBox(height: 12),
               HistoryCard(

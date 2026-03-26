@@ -204,6 +204,26 @@ void handleCommand(String cmd) {
     sendThresholdsToApp();
   }
 
+  else if (cmd.startsWith("THR=")) {
+    String payload = cmd.substring(4);
+    int separator = payload.indexOf(',');
+    if (separator > 0) {
+      int sensorIndex = payload.substring(0, separator).toInt();
+      int threshold = payload.substring(separator + 1).toInt();
+
+      if (sensorIndex >= 0 && sensorIndex < 12) {
+        threshold = constrain(threshold, 0, 4095);
+        sensorThresholds[sensorIndex] = threshold;
+        SerialBT.println("ACK:THR=" + String(sensorIndex) + "," + String(threshold));
+        sendThresholdsToApp();
+      } else {
+        SerialBT.println("ERROR:THR_INDEX");
+      }
+    } else {
+      SerialBT.println("ERROR:THR_FORMAT");
+    }
+  }
+
   else if (cmd == "THRESH?") {
     sendThresholdsToApp();
   }

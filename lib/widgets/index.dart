@@ -2,7 +2,7 @@ export 'info_tile.dart';
 export 'sensor_bar.dart';
 export 'small_control_field.dart';
 export 'speed_field_row.dart';
-export 'pid_slider_row.dart';
+export 'pid_digit_editor_row.dart';
 export 'sensors_card.dart';
 export 'control_summary_card.dart';
 export 'pid_card.dart';

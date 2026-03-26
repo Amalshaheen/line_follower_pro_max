@@ -12,7 +12,10 @@ class BluetoothService {
   BluetoothConnection? _connection;
   StreamSubscription<Uint8List>? _inputSubscription;
   String _incomingBuffer = '';
-  List<int> _sensorThresholds = List<int>.filled(AppConstants.sensorCount, 2000);
+  List<int> _sensorThresholds = List<int>.filled(
+    AppConstants.sensorCount,
+    2000,
+  );
 
   // Callbacks for handling incoming data and connection changes
   final Function(String line)? onDataReceived;
@@ -66,15 +69,17 @@ class BluetoothService {
     }
 
     try {
-      debugPrint('🔌 [BT CONNECT] Attempting to connect to ${device.name} (${device.address})');
-      
+      debugPrint(
+        '🔌 [BT CONNECT] Attempting to connect to ${device.name} (${device.address})',
+      );
+
       final connection = await BluetoothConnection.toAddress(device.address);
-      
+
       if (connection.isConnected) {
         _connection = connection;
 
         await _inputSubscription?.cancel();
-        
+
         if (connection.input != null) {
           _inputSubscription = connection.input!.listen(
             _handleIncomingData,
@@ -86,10 +91,14 @@ class BluetoothService {
           );
         }
 
-        debugPrint('✅ [BT CONNECT] Successfully connected to ${device.address}');
+        debugPrint(
+          '✅ [BT CONNECT] Successfully connected to ${device.address}',
+        );
         return true;
       } else {
-        debugPrint('❌ [BT CONNECT] Connection established but isConnected is false');
+        debugPrint(
+          '❌ [BT CONNECT] Connection established but isConnected is false',
+        );
         await connection.close();
         return false;
       }
@@ -120,12 +129,12 @@ class BluetoothService {
     try {
       final commandWithNewline = '$command\n';
       final encodedCommand = utf8.encode(commandWithNewline);
-      
+
       debugPrint('📤 [BT SEND] Sending command: "$command"');
       debugPrint('   └─ Length: ${encodedCommand.length} bytes');
-      
+
       _connection!.output.add(encodedCommand);
-      
+
       debugPrint('✅ [BT SEND] Command sent successfully!');
       return true;
     } catch (e) {
@@ -139,11 +148,22 @@ class BluetoothService {
     return sendCommand('${AppConstants.cmdThresholdAllPrefix}$threshold');
   }
 
+  /// Set threshold value for a single sensor by index.
+  bool sendThresholdForSensor({required int index, required int threshold}) {
+    if (index < 0 || index >= AppConstants.sensorCount) {
+      debugPrint('❌ [THRESHOLD] Invalid sensor index: $index');
+      return false;
+    }
+    return sendCommand(
+      '${AppConstants.cmdThresholdSinglePrefix}$index,$threshold',
+    );
+  }
+
   /// Handle incoming data from the Bluetooth device.
   void _handleIncomingData(Uint8List data) {
     final chunk = utf8.decode(data, allowMalformed: true);
     debugPrint('📥 [BT RECEIVE] Raw data: "$chunk" (${data.length} bytes)');
-    
+
     _incomingBuffer += chunk;
 
     while (_incomingBuffer.contains('\n')) {
@@ -160,18 +180,24 @@ class BluetoothService {
 
   /// Process a complete line of incoming data.
   void _processLine(String line) {
-    debugPrint('📨 [BT PROCESS] Processing line: "$line" (length: ${line.length})');
-    
+    debugPrint(
+      '📨 [BT PROCESS] Processing line: "$line" (length: ${line.length})',
+    );
+
     // Check for sensor data (format: SENSORS:val0,val1,...,val11)
     if (line.startsWith(AppConstants.respSensors)) {
       final payload = line.substring(AppConstants.respSensors.length);
       final parts = payload.split(',');
-      
-      debugPrint('📥 [SENSORS] Raw payload: "$payload" (${parts.length} values)');
-      
+
+      debugPrint(
+        '📥 [SENSORS] Raw payload: "$payload" (${parts.length} values)',
+      );
+
       if (parts.length == AppConstants.sensorCount) {
         // Parse raw analog values
-        final rawValues = parts.map((v) => int.tryParse(v.trim()) ?? 0).toList();
+        final rawValues = parts
+            .map((v) => int.tryParse(v.trim()) ?? 0)
+            .toList();
 
         final thresholds = _sensorThresholds.length == AppConstants.sensorCount
             ? _sensorThresholds
@@ -180,15 +206,17 @@ class BluetoothService {
           AppConstants.sensorCount,
           (index) => rawValues[index] > thresholds[index],
         );
-        
+
         // Debug output for sensor changes
         final sensorStates = onLine.map((s) => s ? '🟢' : '⚫').join(' ');
         debugPrint('🔍 [SENSORS] Sensor states: [$sensorStates]');
         debugPrint('   └─ Raw values: ${rawValues.join(', ')}');
-        
+
         onSensorDataReceived?.call(rawValues, onLine);
       } else {
-        debugPrint('⚠️ [SENSORS] Expected ${AppConstants.sensorCount} values, got ${parts.length}');
+        debugPrint(
+          '⚠️ [SENSORS] Expected ${AppConstants.sensorCount} values, got ${parts.length}',
+        );
       }
       return;
     }
@@ -200,21 +228,25 @@ class BluetoothService {
         _sensorThresholds = parts
             .map((v) => int.tryParse(v.trim()) ?? 0)
             .toList(growable: false);
-        debugPrint('🎚️ [THRESHOLDS] Updated thresholds: ${_sensorThresholds.join(', ')}');
+        debugPrint(
+          '🎚️ [THRESHOLDS] Updated thresholds: ${_sensorThresholds.join(', ')}',
+        );
         onThresholdsReceived?.call(List<int>.from(_sensorThresholds));
       } else {
-        debugPrint('⚠️ [THRESHOLDS] Expected ${AppConstants.sensorCount} values, got ${parts.length}');
+        debugPrint(
+          '⚠️ [THRESHOLDS] Expected ${AppConstants.sensorCount} values, got ${parts.length}',
+        );
       }
       return;
     }
-    
+
     // Check for track finished
     if (line == AppConstants.respTrackFinished) {
       debugPrint('🏁 [TRACK] Track finished!');
       onTrackFinished?.call(0); // Runtime will come from TIME= response
       return;
     }
-    
+
     // Check for time response (format: TIME=123456)
     if (line.startsWith(AppConstants.respTimePrefix)) {
       final timeStr = line.substring(AppConstants.respTimePrefix.length);
@@ -223,7 +255,7 @@ class BluetoothService {
       onTrackFinished?.call(runtime);
       return;
     }
-    
+
     // Check for ACK response (format: ACK:COMMAND=VALUE)
     if (line.startsWith(AppConstants.respAck)) {
       final ackContent = line.substring(AppConstants.respAck.length);
@@ -236,8 +268,24 @@ class BluetoothService {
         if (command == 'THRALL') {
           final threshold = int.tryParse(value);
           if (threshold != null) {
-            _sensorThresholds = List<int>.filled(AppConstants.sensorCount, threshold);
+            _sensorThresholds = List<int>.filled(
+              AppConstants.sensorCount,
+              threshold,
+            );
             onThresholdsReceived?.call(List<int>.from(_sensorThresholds));
+          }
+        } else if (command == 'THR') {
+          final parts = value.split(',');
+          if (parts.length == 2) {
+            final index = int.tryParse(parts[0].trim());
+            final threshold = int.tryParse(parts[1].trim());
+            if (index != null &&
+                threshold != null &&
+                index >= 0 &&
+                index < AppConstants.sensorCount) {
+              _sensorThresholds[index] = threshold;
+              onThresholdsReceived?.call(List<int>.from(_sensorThresholds));
+            }
           }
         }
         onAckReceived?.call(command, value);

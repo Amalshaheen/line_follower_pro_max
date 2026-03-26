@@ -11,6 +11,7 @@ class SpeedCard extends StatelessWidget {
   final VoidCallback onMaxSpeedSend;
   final VoidCallback onBaseSpeedSend;
   final VoidCallback? onThresholdAllSend;
+  final VoidCallback? onResetDefaults;
 
   const SpeedCard({
     super.key,
@@ -21,6 +22,7 @@ class SpeedCard extends StatelessWidget {
     required this.onMaxSpeedSend,
     required this.onBaseSpeedSend,
     this.onThresholdAllSend,
+    this.onResetDefaults,
   });
 
   @override
@@ -33,10 +35,9 @@ class SpeedCard extends StatelessWidget {
           children: [
             Text(
               AppConstants.speedLabel,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w600),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             SpeedFieldRow(
@@ -50,7 +51,8 @@ class SpeedCard extends StatelessWidget {
               controller: baseSpeedController,
               onSend: onBaseSpeedSend,
             ),
-            if (thresholdAllController != null && onThresholdAllSend != null) ...[
+            if (thresholdAllController != null &&
+                onThresholdAllSend != null) ...[
               const SizedBox(height: 8),
               SpeedFieldRow(
                 label: AppConstants.thresholdAllLabel,
@@ -64,6 +66,21 @@ class SpeedCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
+            ],
+            if (onResetDefaults != null) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onResetDefaults,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(
+                    thresholdAllController != null
+                        ? 'Reset Speed/Threshold'
+                        : 'Reset Speed',
+                  ),
+                ),
+              ),
             ],
           ],
         ),

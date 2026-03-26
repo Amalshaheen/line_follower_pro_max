@@ -14,6 +14,7 @@ class AppConstants {
   // Default speed values
   static const int defaultMaxSpeed = 255;
   static const int defaultBaseSpeed = 150;
+  static const int defaultThreshold = 2000;
 
   // PID scale options
   static const List<double> pidScaleOptions = [10.0, 1.0, 0.1, 0.01];
@@ -37,6 +38,7 @@ class AppConstants {
   static const String cmdQueryTime = 'TIME?';
   static const String cmdQueryThresholds = 'THRESH?';
   static const String cmdThresholdAllPrefix = 'THRALL=';
+  static const String cmdThresholdSinglePrefix = 'THR=';
 
   // Response prefixes from hardware
   static const String respSensors = 'SENSORS:';
@@ -62,7 +64,8 @@ class AppConstants {
   static const String sendButtonLabel = 'Send';
 
   // Error messages
-  static const String failedToLoadDevicesError = 'Failed to load paired devices';
+  static const String failedToLoadDevicesError =
+      'Failed to load paired devices';
   static const String connectionFailedError = 'Connection failed';
   static const String disconnectedStatusMessage = 'Disconnected';
   static const String connectedStatusMessagePrefix = 'Connected to ';

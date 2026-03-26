@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'pid_slider_row.dart';
+import 'pid_digit_editor_row.dart';
 import '../constants/app_constants.dart';
 
 /// Card widget for PID controller configuration.
@@ -7,95 +7,86 @@ class PidCard extends StatelessWidget {
   final double pValue;
   final double iValue;
   final double dValue;
-  final double pScale;
-  final double iScale;
-  final double dScale;
-  final TextEditingController pController;
-  final TextEditingController iController;
-  final TextEditingController dController;
   final ValueChanged<double> onPChanged;
   final ValueChanged<double> onIChanged;
   final ValueChanged<double> onDChanged;
-  final ValueChanged<double> onPChangeEnd;
-  final ValueChanged<double> onIChangeEnd;
-  final ValueChanged<double> onDChangeEnd;
-  final ValueChanged<String> onPSubmitted;
-  final ValueChanged<String> onISubmitted;
-  final ValueChanged<String> onDSubmitted;
-  final ValueChanged<double> onPScaleChanged;
-  final ValueChanged<double> onIScaleChanged;
-  final ValueChanged<double> onDScaleChanged;
+  final VoidCallback onSendAll;
+  final VoidCallback onResetDefaults;
 
   const PidCard({
     super.key,
     required this.pValue,
     required this.iValue,
     required this.dValue,
-    required this.pScale,
-    required this.iScale,
-    required this.dScale,
-    required this.pController,
-    required this.iController,
-    required this.dController,
     required this.onPChanged,
     required this.onIChanged,
     required this.onDChanged,
-    required this.onPChangeEnd,
-    required this.onIChangeEnd,
-    required this.onDChangeEnd,
-    required this.onPSubmitted,
-    required this.onISubmitted,
-    required this.onDSubmitted,
-    required this.onPScaleChanged,
-    required this.onIScaleChanged,
-    required this.onDScaleChanged,
+    required this.onSendAll,
+    required this.onResetDefaults,
   });
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               AppConstants.pidLabel,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w600),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
-            const SizedBox(height: 8),
-            PidSliderRow(
+            const SizedBox(height: 6),
+            Text(
+              'Tap arrows for small steps, hold for fast changes.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            PidDigitEditorRow(
               title: 'P',
               value: pValue,
-              scale: pScale,
-              controller: pController,
               onChanged: onPChanged,
-              onSubmitted: onPSubmitted,
-              onScaleChanged: onPScaleChanged,
-              onChangeEnd: onPChangeEnd,
+              integerDigits: 3,
+              accentColor: colorScheme.primary,
             ),
-            PidSliderRow(
+            PidDigitEditorRow(
               title: 'I',
               value: iValue,
-              scale: iScale,
-              controller: iController,
               onChanged: onIChanged,
-              onSubmitted: onISubmitted,
-              onScaleChanged: onIScaleChanged,
-              onChangeEnd: onIChangeEnd,
+              integerDigits: 2,
+              accentColor: colorScheme.tertiary,
             ),
-            PidSliderRow(
+            PidDigitEditorRow(
               title: 'D',
               value: dValue,
-              scale: dScale,
-              controller: dController,
               onChanged: onDChanged,
-              onSubmitted: onDSubmitted,
-              onScaleChanged: onDScaleChanged,
-              onChangeEnd: onDChangeEnd,
+              integerDigits: 3,
+              accentColor: colorScheme.secondary,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onResetDefaults,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Reset PID'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: onSendAll,
+                    icon: const Icon(Icons.send_rounded),
+                    label: const Text('Send PID'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

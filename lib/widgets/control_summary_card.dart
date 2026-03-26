@@ -2,14 +2,12 @@ import 'package:flutter/material.dart';
 import 'info_tile.dart';
 import '../constants/app_constants.dart';
 
-/// Card widget for control summary showing start/stop button, calibration, and runtime info.
+/// Card widget for control summary showing start/stop and runtime info.
 class ControlSummaryCard extends StatelessWidget {
   final bool isRunning;
   final bool trackFinished;
   final int runtime; // Runtime in milliseconds
   final VoidCallback onStartStop;
-  final VoidCallback onCalibrateBlack;
-  final VoidCallback onCalibrateWhite;
 
   const ControlSummaryCard({
     super.key,
@@ -17,8 +15,6 @@ class ControlSummaryCard extends StatelessWidget {
     this.trackFinished = false,
     this.runtime = 0,
     required this.onStartStop,
-    required this.onCalibrateBlack,
-    required this.onCalibrateWhite,
   });
 
   /// Format runtime as mm:ss.ms
@@ -97,35 +93,6 @@ class ControlSummaryCard extends StatelessWidget {
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 12),
-            // Calibration row
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.grey[800],
-                      side: BorderSide(color: Colors.grey[400]!),
-                    ),
-                    onPressed: isRunning ? null : onCalibrateBlack,
-                    icon: const Icon(Icons.circle, size: 16, color: Colors.black),
-                    label: const Text(AppConstants.calibrateBlackLabel),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.grey[800],
-                      side: BorderSide(color: Colors.grey[400]!),
-                    ),
-                    onPressed: isRunning ? null : onCalibrateWhite,
-                    icon: Icon(Icons.circle_outlined, size: 16, color: Colors.grey[600]),
-                    label: const Text(AppConstants.calibrateWhiteLabel),
-                  ),
-                ),
-              ],
             ),
           ],
         ),
