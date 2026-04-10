@@ -24,8 +24,8 @@ const int S2 = 18;
 const int S3 = 19;
 
 // --- PID & Speed Variables ---
-float Kp = 30.0, Ki = 0.0, Kd = 0.0;
-int BASE_SPEED = 150, MAX_SPEED = 255;
+float Kp = 70.0, Ki = 0.0, Kd = 0.0;
+int BASE_SPEED = 255, MAX_SPEED = 255;
 // --- Calibration Arrays ---
 
 int sensorThresholds[12];
@@ -35,7 +35,7 @@ int whiteValues[12];
 // --- Logic Variables ---
 float error = 0, lastError = 0, integral = 0;
 bool motorRunning = false;
-bool autoStopOnFinish = true;
+bool autoStopOnFinish = false;
 bool lineLostRecoveryEnabled = true;
 bool finishReportedForCurrentRun = false;
 
@@ -81,7 +81,7 @@ void setup() {
   pinMode(WHITE_BUTTON, INPUT_PULLUP);
 
   for (int i = 0; i < 12; i++)
-    sensorThresholds[i] = 1500;
+    sensorThresholds[i] = 300;
 
   digitalWrite(STBY, HIGH);
   SerialBT.println("System Ready.");

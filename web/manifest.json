@@ -1,6 +1,6 @@
 {
-    "name": "line_follower_pro_max",
-    "short_name": "line_follower_pro_max",
+    "name": "LineRobo Companion Pro",
+    "short_name": "LineRobo",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

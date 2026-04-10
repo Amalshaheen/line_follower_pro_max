@@ -5,6 +5,8 @@ import '../models/pid_run_history.dart';
 /// Card widget displaying PID run history with restore functionality.
 class HistoryCard extends StatelessWidget {
   final List<PidRunHistory> history;
+  final RunCaptureType? selectedFilter;
+  final ValueChanged<RunCaptureType?>? onFilterChanged;
   final void Function(PidRunHistory)? onRestoreConfig;
   final void Function(String)? onDeleteRun;
   final VoidCallback? onClearAll;
@@ -12,6 +14,8 @@ class HistoryCard extends StatelessWidget {
   const HistoryCard({
     super.key,
     required this.history,
+    this.selectedFilter,
+    this.onFilterChanged,
     this.onRestoreConfig,
     this.onDeleteRun,
     this.onClearAll,
@@ -46,6 +50,29 @@ class HistoryCard extends StatelessWidget {
                     ),
                   ),
               ],
+            ),
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: DropdownButton<RunCaptureType?>(
+                value: selectedFilter,
+                hint: const Text('Filter runs'),
+                items: const [
+                  DropdownMenuItem<RunCaptureType?>(
+                    value: null,
+                    child: Text('All runtimes'),
+                  ),
+                  DropdownMenuItem<RunCaptureType?>(
+                    value: RunCaptureType.pathFinished,
+                    child: Text('Path Finished runtime'),
+                  ),
+                  DropdownMenuItem<RunCaptureType?>(
+                    value: RunCaptureType.startStop,
+                    child: Text('Start/Stop runtime'),
+                  ),
+                ],
+                onChanged: onFilterChanged,
+              ),
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -127,7 +154,7 @@ class HistoryCard extends StatelessWidget {
                               ),
                             ),
                             subtitle: Text(
-                              'Speed: ${run.baseSpeed}/${run.maxSpeed} • ${run.formattedTimestamp}',
+                              '${run.captureTypeLabel} • Speed: ${run.baseSpeed}/${run.maxSpeed} • ${run.formattedTimestamp}',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                             trailing: IconButton(

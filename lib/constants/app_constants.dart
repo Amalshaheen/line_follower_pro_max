@@ -50,7 +50,7 @@ class AppConstants {
   static const String respThresholds = 'THRESHOLDS:';
 
   // UI strings
-  static const String appTitle = 'Line Follower Control';
+  static const String appTitle = 'LineRobo Companion Pro';
   static const String bluetoothSettingsTitle = 'Bluetooth Settings';
   static const String sensorsLabel = 'Sensors';
   static const String pidLabel = 'PID';

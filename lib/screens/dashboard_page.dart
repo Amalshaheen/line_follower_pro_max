@@ -60,6 +60,7 @@ class _DashboardPageState extends State<DashboardPage> {
   final SettingsService _settingsService = SettingsService();
   AppSettings _defaultSettings = AppSettings.defaults();
   List<PidRunHistory> history = [];
+  RunCaptureType? _historyFilter;
 
   // Bluetooth related variables
   late BluetoothService bluetoothService;
@@ -172,7 +173,10 @@ class _DashboardPageState extends State<DashboardPage> {
             // Save the successful run to history
             if (!_currentRunSaved) {
               _currentRunSaved = true;
-              _saveRunToHistory(runtimeMs);
+              _saveRunToHistory(
+                runtimeMs,
+                captureType: RunCaptureType.pathFinished,
+              );
             }
           }
         }
@@ -345,9 +349,27 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   // History management methods
-  Future<void> _saveRunToHistory(int runtimeMs) async {
+  List<PidRunHistory> get _filteredHistory {
+    final filter = _historyFilter;
+    if (filter == null) {
+      return history;
+    }
+    return history.where((run) => run.captureType == filter).toList();
+  }
+
+  void _handleHistoryFilterChanged(RunCaptureType? filter) {
+    setState(() {
+      _historyFilter = filter;
+    });
+  }
+
+  Future<void> _saveRunToHistory(
+    int runtimeMs, {
+    required RunCaptureType captureType,
+  }) async {
     final run = PidRunHistory.create(
       runtimeMs: runtimeMs,
+      captureType: captureType,
       kp: kp,
       ki: ki,
       kd: kd,
@@ -405,26 +427,6 @@ class _DashboardPageState extends State<DashboardPage> {
     await _loadHistory();
   }
 
-  Future<bool?> _showSaveRunDialog({required int runtimeMs}) {
-    return showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Save This Run?'),
-        content: Text('Runtime: ${(runtimeMs / 1000).toStringAsFixed(2)}s'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('No'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
   int _currentElapsedRuntimeMs() {
     final startedAt = _currentRunStartedAt;
     if (startedAt == null) {
@@ -449,7 +451,7 @@ class _DashboardPageState extends State<DashboardPage> {
     }
 
     final elapsed = _currentElapsedRuntimeMs();
-    final shouldAskSave = elapsed > 0 && !_currentRunSaved;
+    final shouldAutoSave = elapsed > 0 && !_currentRunSaved;
 
     setState(() {
       isRunning = false;
@@ -458,29 +460,21 @@ class _DashboardPageState extends State<DashboardPage> {
     debugPrint('⏹️  [APP] Robot STOPPED');
     bluetoothService.sendCommand(AppConstants.cmdRunStop);
 
-    if (!shouldAskSave || !mounted) {
+    if (!shouldAutoSave) {
       return;
     }
 
-    final shouldSave = await _showSaveRunDialog(runtimeMs: elapsed);
+    _currentRunSaved = true;
+    await _saveRunToHistory(
+      elapsed,
+      captureType: RunCaptureType.startStop,
+    );
     if (!mounted) {
       return;
     }
-
-    if (shouldSave == true) {
-      _currentRunSaved = true;
-      await _saveRunToHistory(elapsed);
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Run saved to history')));
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Run discarded')));
-    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Run saved automatically')));
   }
 
   void _handleAutoStopChanged(bool enabled) {
@@ -521,18 +515,21 @@ class _DashboardPageState extends State<DashboardPage> {
     setState(() {
       kp = value;
     });
+    _sendPidValuesQuietly();
   }
 
   void _handleIChanged(double value) {
     setState(() {
       ki = value;
     });
+    _sendPidValuesQuietly();
   }
 
   void _handleDChanged(double value) {
     setState(() {
       kd = value;
     });
+    _sendPidValuesQuietly();
   }
 
   void _handleCalibrationModeChanged(bool enabled) {
@@ -581,6 +578,22 @@ class _DashboardPageState extends State<DashboardPage> {
         duration: Duration(milliseconds: 900),
         content: Text('Calibration values saved'),
       ),
+    );
+  }
+
+  void _sendPidValuesQuietly() {
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdKpPrefix}${kp.toStringAsFixed(2)}',
+    );
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdKiPrefix}${ki.toStringAsFixed(2)}',
+    );
+    bluetoothService.sendCommand(
+      '${AppConstants.cmdKdPrefix}${kd.toStringAsFixed(2)}',
+    );
+
+    debugPrint(
+      '📤 [APP] PID autosent: Kp=${kp.toStringAsFixed(2)}, Ki=${ki.toStringAsFixed(2)}, Kd=${kd.toStringAsFixed(2)}',
     );
   }
 
@@ -644,7 +657,20 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(AppConstants.appTitle),
+        title: Text.rich(
+          TextSpan(
+            children: [
+              const TextSpan(text: 'LineRobo Companion '),
+              TextSpan(
+                text: 'Pro',
+                style: const TextStyle(
+                  color: Color(0xFFD4AF37),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
         actions: [
           Stack(
             children: [
@@ -749,7 +775,9 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
               const SizedBox(height: 12),
               HistoryCard(
-                history: history,
+                history: _filteredHistory,
+                selectedFilter: _historyFilter,
+                onFilterChanged: _handleHistoryFilterChanged,
                 onRestoreConfig: _restoreConfig,
                 onDeleteRun: _deleteRun,
                 onClearAll: _clearAllHistory,

@@ -1,10 +1,13 @@
 import 'dart:convert';
 
+enum RunCaptureType { pathFinished, startStop }
+
 /// Represents a single successful PID run with its configuration and result.
 class PidRunHistory {
   final String id;
   final DateTime timestamp;
   final int runtimeMs;
+  final RunCaptureType captureType;
   final double kp;
   final double ki;
   final double kd;
@@ -15,6 +18,7 @@ class PidRunHistory {
     required this.id,
     required this.timestamp,
     required this.runtimeMs,
+    required this.captureType,
     required this.kp,
     required this.ki,
     required this.kd,
@@ -25,6 +29,7 @@ class PidRunHistory {
   /// Create a new run history entry with auto-generated ID.
   factory PidRunHistory.create({
     required int runtimeMs,
+    required RunCaptureType captureType,
     required double kp,
     required double ki,
     required double kd,
@@ -35,6 +40,7 @@ class PidRunHistory {
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       timestamp: DateTime.now(),
       runtimeMs: runtimeMs,
+      captureType: captureType,
       kp: kp,
       ki: ki,
       kd: kd,
@@ -72,12 +78,35 @@ class PidRunHistory {
     return 'P=${kp.toStringAsFixed(1)} I=${ki.toStringAsFixed(1)} D=${kd.toStringAsFixed(1)}';
   }
 
+  String get captureTypeLabel {
+    return captureType == RunCaptureType.pathFinished
+        ? 'Path Finished'
+        : 'Start/Stop';
+  }
+
+  static RunCaptureType parseCaptureType(String? raw) {
+    switch (raw) {
+      case 'start_stop':
+        return RunCaptureType.startStop;
+      case 'path_finished':
+      default:
+        return RunCaptureType.pathFinished;
+    }
+  }
+
+  static String encodeCaptureType(RunCaptureType value) {
+    return value == RunCaptureType.pathFinished
+        ? 'path_finished'
+        : 'start_stop';
+  }
+
   /// Convert to JSON map for storage.
   Map<String, dynamic> toJson() {
     return {
       'id': id,
       'timestamp': timestamp.toIso8601String(),
       'runtimeMs': runtimeMs,
+      'captureType': encodeCaptureType(captureType),
       'kp': kp,
       'ki': ki,
       'kd': kd,
@@ -92,6 +121,7 @@ class PidRunHistory {
       id: json['id'] as String,
       timestamp: DateTime.parse(json['timestamp'] as String),
       runtimeMs: json['runtimeMs'] as int,
+      captureType: parseCaptureType(json['captureType'] as String?),
       kp: (json['kp'] as num).toDouble(),
       ki: (json['ki'] as num).toDouble(),
       kd: (json['kd'] as num).toDouble(),
@@ -114,6 +144,6 @@ class PidRunHistory {
 
   @override
   String toString() {
-    return 'PidRunHistory(id: $id, runtime: $formattedRuntime, $pidSummary)';
+    return 'PidRunHistory(id: $id, runtime: $formattedRuntime, type: $captureTypeLabel, $pidSummary)';
   }
 }

@@ -141,7 +141,7 @@ class _PidDigitEditorRowState extends State<PidDigitEditorRow> {
             ),
             const SizedBox(width: 8),
             SizedBox(
-              width: 70,
+              width: 68,
               child: TextField(
                 controller: _valueController,
                 textAlign: TextAlign.center,
@@ -186,7 +186,7 @@ class _DigitStepCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 35,
+      width: 33,
       padding: const EdgeInsets.symmetric(vertical: 2),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -277,7 +277,7 @@ class _RepeatArrowButtonState extends State<_RepeatArrowButton> {
         onTapCancel: _cancelRepeat,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 1, horizontal: 4),
-          child: Icon(widget.icon, size: 26),
+          child: Icon(widget.icon, size: 24),
         ),
       ),
     );
@@ -290,7 +290,7 @@ class _DotCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const SizedBox(
-      width: 10,
+      width: 5,
       child: Center(
         child: Text(
           '.',
