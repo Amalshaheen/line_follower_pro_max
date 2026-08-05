@@ -1,11 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
+
 import '../widgets/index.dart';
 import '../constants/app_constants.dart';
 import '../models/pid_run_history.dart';
-import '../services/bluetooth_service.dart';
-import '../services/history_service.dart';
-import '../services/settings_service.dart';
+import '../services/index.dart';
 import 'bluetooth_settings_page.dart';
 import 'settings_page.dart';
 
@@ -20,7 +20,7 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   bool isRunning = false;
   bool trackFinished = false;
-  int runtime = 0; // Runtime in milliseconds
+  int runtime = 0;
   late List<bool> sensorOnLine = List<bool>.filled(
     AppConstants.sensorCount,
     false,
@@ -36,7 +36,7 @@ class _DashboardPageState extends State<DashboardPage> {
   DateTime? _currentRunStartedAt;
   bool _currentRunSaved = false;
 
-  // PID values - these are the effective values sent to hardware
+  // PID values — effective values sent to hardware
   double kp = AppConstants.defaultKp;
   double ki = AppConstants.defaultKi;
   double kd = AppConstants.defaultKd;
@@ -55,208 +55,225 @@ class _DashboardPageState extends State<DashboardPage> {
     AppConstants.defaultThreshold,
   );
 
-  // History service and run history
+  // History / settings
   final HistoryService _historyService = HistoryService();
   final SettingsService _settingsService = SettingsService();
   AppSettings _defaultSettings = AppSettings.defaults();
   List<PidRunHistory> history = [];
   RunCaptureType? _historyFilter;
 
-  // Bluetooth related variables
-  late BluetoothService bluetoothService;
+  // ── Connection state ───────────────────────────────────────────────────────
+  /// The active service (either classic BT or BLE).
+  RobotService? _activeService;
+
+  ConnectionMode _connectionMode = ConnectionMode.classic;
+  String _deviceName = AppConstants.defaultDeviceName;
   bool isConnected = false;
   bool isConnecting = false;
   String btStatus = 'Disconnected';
+
+  // Classic BT
+  BluetoothService? _classicService;
   List<BluetoothDevice> bondedDevices = [];
-  BluetoothDevice? selectedDevice;
+  BluetoothDevice? selectedClassicDevice;
+
+  // BLE
+  BleService? _bleService;
+  List<ScanResult> scanResults = [];
+  ScanResult? selectedScanResult;
+  bool isScanning = false;
+  StreamSubscription<List<ScanResult>>? _scanSubscription;
+  StreamSubscription<bool>? _isScanningSubscription;
 
   @override
   void initState() {
     super.initState();
-    _initBluetooth();
-    _loadDefaultSettings(applyToCurrentControls: true);
+    _initFromSettings();
     _loadHistory();
   }
 
-  Future<void> _loadDefaultSettings({
-    required bool applyToCurrentControls,
-  }) async {
-    final loaded = await _settingsService.getSettings();
+  // ---------------------------------------------------------------------------
+  // Initialisation
+  // ---------------------------------------------------------------------------
+
+  Future<void> _initFromSettings() async {
+    final settings = await _settingsService.getSettings();
     final savedSensorThresholds = await _settingsService.getSensorThresholds();
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
+
     setState(() {
-      _defaultSettings = loaded;
-      if (applyToCurrentControls) {
-        kp = loaded.kp;
-        ki = loaded.ki;
-        kd = loaded.kd;
-        maxSpeedController.text = loaded.maxSpeed.toString();
-        baseSpeedController.text = loaded.baseSpeed.toString();
-        sensorThresholds =
-            savedSensorThresholds ??
-            List<int>.filled(AppConstants.sensorCount, loaded.threshold);
-        allThresholdController.text = loaded.threshold.toString();
+      _defaultSettings = settings;
+      _connectionMode = settings.connectionMode;
+      _deviceName = settings.deviceName;
+
+      kp = settings.kp;
+      ki = settings.ki;
+      kd = settings.kd;
+      maxSpeedController.text = settings.maxSpeed.toString();
+      baseSpeedController.text = settings.baseSpeed.toString();
+      sensorThresholds = savedSensorThresholds ??
+          List<int>.filled(AppConstants.sensorCount, settings.threshold);
+      allThresholdController.text = settings.threshold.toString();
+    });
+
+    await _initServices();
+  }
+
+  Future<void> _initServices() async {
+    // Build both services so we can switch without reinitialising permissions.
+    _classicService = BluetoothService(
+      onDataReceived: _onDataReceived,
+      onSensorDataReceived: _onSensorDataReceived,
+      onTrackFinished: _onTrackFinished,
+      onAckReceived: _onAckReceived,
+      onThresholdsReceived: _onThresholdsReceived,
+      onDisconnected: _onDisconnected,
+    );
+
+    _bleService = BleService(
+      onDataReceived: _onDataReceived,
+      onSensorDataReceived: _onSensorDataReceived,
+      onTrackFinished: _onTrackFinished,
+      onAckReceived: _onAckReceived,
+      onThresholdsReceived: _onThresholdsReceived,
+      onDisconnected: _onDisconnected,
+    );
+
+    _activeService = _connectionMode == ConnectionMode.ble
+        ? _bleService
+        : _classicService;
+
+    // Request permissions for BOTH transports upfront so the user isn't
+    // interrupted later when they switch modes.
+    await _classicService!.initializePermissions();
+    await _bleService!.initializePermissions();
+
+    if (_connectionMode == ConnectionMode.classic) {
+      await _loadBondedDevices();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shared service callbacks
+  // ---------------------------------------------------------------------------
+
+  void _onDataReceived(String line) {
+    if (!mounted) return;
+    setState(() {
+      if (line == 'Robot Started') {
+        isRunning = true;
+        trackFinished = false;
+        runtime = 0;
+        _currentRunStartedAt = DateTime.now();
+        _currentRunSaved = false;
+      } else if (line == 'Robot Stopped') {
+        isRunning = false;
       }
     });
   }
 
-  Future<void> _loadHistory() async {
-    final loadedHistory = await _historyService.getHistory();
-    if (mounted) {
-      setState(() {
-        history = loadedHistory;
-      });
+  void _onSensorDataReceived(List<int> rawValues, List<bool> onLine) {
+    if (!mounted || onLine.length != AppConstants.sensorCount) return;
+    setState(() {
+      sensorOnLine = onLine;
+      sensorRawValues = rawValues;
+    });
+  }
+
+  void _onTrackFinished(int runtimeMs) {
+    if (!mounted) return;
+    setState(() {
+      trackFinished = true;
+      if (autoStopOnFinish) isRunning = false;
+      if (runtimeMs > 0) runtime = runtimeMs;
+    });
+    if (runtime == 0) {
+      _activeService?.sendCommand(AppConstants.cmdQueryTime);
+    } else if (!_currentRunSaved) {
+      _currentRunSaved = true;
+      _saveRunToHistory(runtimeMs, captureType: RunCaptureType.pathFinished);
     }
   }
 
-  @override
-  void dispose() {
-    maxSpeedController.dispose();
-    baseSpeedController.dispose();
-    allThresholdController.dispose();
-    bluetoothService.dispose();
-    super.dispose();
+  void _onAckReceived(String command, String value) {
+    if (!mounted) return;
+    if (command == 'BASE') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(milliseconds: 900),
+          content: Text('Base speed confirmed: $value'),
+        ),
+      );
+    }
   }
 
-  Future<void> _initBluetooth() async {
-    bluetoothService = BluetoothService(
-      onDataReceived: (line) {
-        if (mounted) {
-          debugPrint('📨 [DASHBOARD] Message received: $line');
-          setState(() {
-            // Handle status messages from hardware
-            if (line == 'Robot Started') {
-              isRunning = true;
-              trackFinished = false;
-              runtime = 0;
-              _currentRunStartedAt = DateTime.now();
-              _currentRunSaved = false;
-            } else if (line == 'Robot Stopped') {
-              isRunning = false;
-            }
-          });
-        }
-      },
-      onSensorDataReceived: (rawValues, onLine) {
-        debugPrint(
-          '✅ [DASHBOARD] onSensorDataReceived called with ${onLine.length} sensors',
-        );
-        if (mounted && onLine.length == AppConstants.sensorCount) {
-          debugPrint('   ✓ Check passed! Updating UI...');
-          setState(() {
-            sensorOnLine = onLine;
-            sensorRawValues = rawValues;
-          });
-          // Debug output
-          final sensorStates = onLine.map((s) => s ? '🟢' : '⚫').join(' ');
-          debugPrint('📊 [APP] Sensor states updated: [$sensorStates]');
-        }
-      },
-      onTrackFinished: (runtimeMs) {
-        if (mounted) {
-          setState(() {
-            trackFinished = true;
-            if (autoStopOnFinish) {
-              isRunning = false;
-            }
-            if (runtimeMs > 0) {
-              runtime = runtimeMs;
-            }
-          });
-          debugPrint('🏁 [DASHBOARD] Track finished! Runtime: ${runtime}ms');
-          // Request the runtime if we got 0
-          if (runtime == 0) {
-            bluetoothService.sendCommand(AppConstants.cmdQueryTime);
-          } else {
-            // Save the successful run to history
-            if (!_currentRunSaved) {
-              _currentRunSaved = true;
-              _saveRunToHistory(
-                runtimeMs,
-                captureType: RunCaptureType.pathFinished,
-              );
-            }
-          }
-        }
-      },
-      onAckReceived: (command, value) {
-        debugPrint('✅ [DASHBOARD] ACK received: $command=$value');
-        if (!mounted) {
-          return;
-        }
-        if (command == 'BASE') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              duration: const Duration(milliseconds: 900),
-              content: Text('Base speed confirmed: $value'),
-            ),
-          );
-        }
-      },
-      onThresholdsReceived: (thresholds) {
-        if (mounted && thresholds.length == AppConstants.sensorCount) {
-          final average =
-              thresholds.reduce((a, b) => a + b) ~/ thresholds.length;
-          setState(() {
-            sensorThresholds = thresholds;
-            allThresholdController.text = average.toString();
-          });
-          debugPrint(
-            '🎚️ [DASHBOARD] Thresholds synced: ${thresholds.join(', ')}',
-          );
-        }
-      },
-      onDisconnected: () {
-        if (mounted) {
-          setState(() {
-            isConnected = false;
-            btStatus = 'Disconnected';
-          });
-        }
-      },
+  void _onThresholdsReceived(List<int> thresholds) {
+    if (!mounted || thresholds.length != AppConstants.sensorCount) return;
+    final average = thresholds.reduce((a, b) => a + b) ~/ thresholds.length;
+    setState(() {
+      sensorThresholds = thresholds;
+      allThresholdController.text = average.toString();
+    });
+  }
+
+  void _onDisconnected() {
+    if (!mounted) return;
+    setState(() {
+      isConnected = false;
+      btStatus = 'Disconnected';
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mode switching
+  // ---------------------------------------------------------------------------
+
+  void _handleModeChanged(ConnectionMode mode) {
+    if (mode == _connectionMode) return;
+    setState(() {
+      _connectionMode = mode;
+      _activeService = mode == ConnectionMode.ble ? _bleService : _classicService;
+      scanResults = [];
+      selectedScanResult = null;
+    });
+    // Persist the new mode choice
+    _settingsService.saveSettings(
+      _defaultSettings.copyWith(connectionMode: mode, deviceName: _deviceName),
     );
-
-    final permissionsGranted = await bluetoothService.initializePermissions();
-    if (permissionsGranted) {
-      await _loadBondedDevices();
-      // Check if already connected
-      _updateConnectionStatus();
+    if (mode == ConnectionMode.classic) {
+      _loadBondedDevices();
     }
+    // BLE permissions are already requested at init — no extra call needed
   }
 
-  void _updateConnectionStatus() {
-    if (bluetoothService.isConnected) {
-      if (mounted) {
-        setState(() {
-          isConnected = true;
-          if (selectedDevice != null) {
-            btStatus =
-                'Connected to ${selectedDevice!.name ?? selectedDevice!.address}';
-          } else {
-            btStatus = 'Connected';
-          }
-        });
-      }
-    }
+  void _handleDeviceNameChanged(String name) {
+    if (name.isEmpty) return;
+    setState(() => _deviceName = name);
+    _settingsService.saveSettings(
+      _defaultSettings.copyWith(
+        connectionMode: _connectionMode,
+        deviceName: name,
+      ),
+    );
   }
 
-  Future<void> _loadBondedDevices() async {
-    final devices = await bluetoothService.getBondedDevices();
+  // ---------------------------------------------------------------------------
+  // Classic BT helpers
+  // ---------------------------------------------------------------------------
+
+  Future<List<BluetoothDevice>> _loadBondedDevices() async {
+    final devices = await _classicService!.getBondedDevices();
     if (mounted) {
-      setState(() {
-        bondedDevices = devices;
-      });
+      setState(() => bondedDevices = devices);
     }
+    return devices;
   }
 
-  Future<void> _connectToDevice() async {
-    if (selectedDevice == null) return;
-
+  Future<bool> _connectClassic() async {
+    if (selectedClassicDevice == null) return false;
     setState(() => isConnecting = true);
 
-    final success = await bluetoothService.connect(selectedDevice!);
+    final success = await _classicService!.connect(selectedClassicDevice!);
 
     if (mounted) {
       setState(() {
@@ -264,20 +281,12 @@ class _DashboardPageState extends State<DashboardPage> {
         if (success) {
           isConnected = true;
           btStatus =
-              'Connected to ${selectedDevice!.name ?? selectedDevice!.address}';
-          bluetoothService.sendCommand(AppConstants.cmdQueryThresholds);
-          bluetoothService.sendCommand(
-            '${AppConstants.cmdAutoStopPrefix}${autoStopOnFinish ? 1 : 0}',
-          );
-          bluetoothService.sendCommand(
-            '${AppConstants.cmdLineLostRecoveryPrefix}${lineLostRecoveryEnabled ? 1 : 0}',
-          );
+              'Connected to ${selectedClassicDevice!.name ?? selectedClassicDevice!.address}';
+          _postConnect();
         } else {
           btStatus = 'Failed to connect';
         }
       });
-
-      // Show feedback to user and close the settings page if connection was successful
       if (success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -286,22 +295,119 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
         );
         await Future.delayed(const Duration(milliseconds: 500));
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
+        if (mounted) Navigator.of(context).pop();
       }
+    }
+    return success;
+  }
+
+  // ---------------------------------------------------------------------------
+  // BLE helpers
+  // ---------------------------------------------------------------------------
+
+  void _startBleScan() {
+    // Ensure BLE adapter is on before scanning
+    final stream = _bleService!.startScanAll(
+      timeout: const Duration(seconds: 10),
+    );
+    setState(() {
+      scanResults = [];
+      isScanning = true;
+    });
+
+    _scanSubscription?.cancel();
+    _scanSubscription = stream.listen(
+      (results) {
+        if (mounted) setState(() => scanResults = results);
+      },
+      onError: (Object e) {
+        debugPrint('❌ [BLE SCAN] Error: $e');
+        if (mounted) setState(() => isScanning = false);
+      },
+    );
+
+    _isScanningSubscription?.cancel();
+    _isScanningSubscription = _bleService!.isScanningStream.listen((scanning) {
+      if (mounted) setState(() => isScanning = scanning);
+    });
+  }
+
+  Future<bool> _connectBle() async {
+    if (selectedScanResult == null) return false;
+    setState(() => isConnecting = true);
+    await _bleService!.stopScan();
+
+    final success =
+        await _bleService!.connect(selectedScanResult!.device);
+
+    if (mounted) {
+      setState(() {
+        isConnecting = false;
+        if (success) {
+          isConnected = true;
+          final name = selectedScanResult!.device.platformName.isNotEmpty
+              ? selectedScanResult!.device.platformName
+              : selectedScanResult!.device.remoteId.str;
+          btStatus = 'Connected to $name (BLE)';
+          _postConnect();
+        } else {
+          btStatus = 'BLE connection failed';
+        }
+      });
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('BLE connected successfully'),
+            duration: Duration(milliseconds: 800),
+          ),
+        );
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) Navigator.of(context).pop();
+      }
+    }
+    return success;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shared connect/disconnect
+  // ---------------------------------------------------------------------------
+
+  void _postConnect() {
+    _activeService?.sendCommand(AppConstants.cmdQueryThresholds);
+    _activeService?.sendCommand(
+      '${AppConstants.cmdAutoStopPrefix}${autoStopOnFinish ? 1 : 0}',
+    );
+    _activeService?.sendCommand(
+      '${AppConstants.cmdLineLostRecoveryPrefix}${lineLostRecoveryEnabled ? 1 : 0}',
+    );
+  }
+
+  Future<bool> _connectToDevice() async {
+    if (_connectionMode == ConnectionMode.ble) {
+      return await _connectBle();
+    } else {
+      return await _connectClassic();
     }
   }
 
   Future<void> _disconnectDevice() async {
-    await bluetoothService.disconnect();
+    if (_connectionMode == ConnectionMode.ble) {
+      await _bleService?.disconnect();
+    } else {
+      await _classicService?.disconnect();
+    }
     if (mounted) {
       setState(() {
         isConnected = false;
         btStatus = 'Disconnected';
+        isRunning = false;
       });
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Navigation
+  // ---------------------------------------------------------------------------
 
   void _navigateToBluetoothSettings() {
     Navigator.push(
@@ -309,22 +415,34 @@ class _DashboardPageState extends State<DashboardPage> {
       MaterialPageRoute(
         builder: (context) => BluetoothSettingsPage(
           bondedDevices: bondedDevices,
-          selectedDevice: selectedDevice,
+          selectedClassicDevice: selectedClassicDevice,
+          scanResults: scanResults,
+          selectedScanResult: selectedScanResult,
+          isScanning: isScanning,
+          bleAdapterStateStream: _bleService?.adapterStateStream,
+          connectionMode: _connectionMode,
           isConnected: isConnected,
           isConnecting: isConnecting,
           btStatus: btStatus,
-          onDeviceSelected: (device) {
-            setState(() => selectedDevice = device);
+          deviceName: _deviceName,
+          onModeChanged: (mode) {
+            _handleModeChanged(mode);
+            setState(() {});
+          },
+          onDeviceNameChanged: _handleDeviceNameChanged,
+          onClassicDeviceSelected: (device) {
+            setState(() => selectedClassicDevice = device);
+          },
+          onBleDeviceSelected: (result) {
+            setState(() => selectedScanResult = result);
           },
           onConnect: _connectToDevice,
           onDisconnect: _disconnectDevice,
-          onRefresh: _loadBondedDevices,
+          onRefreshClassic: _loadBondedDevices,
+          onStartBleScan: _startBleScan,
         ),
       ),
-    ).then((_) {
-      // Update connection status when returning from settings
-      _updateConnectionStatus();
-    });
+    ).then((_) => _updateConnectionStatus());
   }
 
   void _navigateToSettingsPage() {
@@ -335,10 +453,8 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
     ).then((changed) {
       if (changed == true) {
-        _loadDefaultSettings(applyToCurrentControls: false);
-        if (!mounted) {
-          return;
-        }
+        _loadDefaultSettings();
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Defaults saved. Use reset buttons to apply.'),
@@ -348,19 +464,47 @@ class _DashboardPageState extends State<DashboardPage> {
     });
   }
 
-  // History management methods
+  void _updateConnectionStatus() {
+    if (_activeService?.isConnected == true && mounted) {
+      setState(() => isConnected = true);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Settings & history
+  // ---------------------------------------------------------------------------
+
+  Future<void> _loadDefaultSettings() async {
+    final loaded = await _settingsService.getSettings();
+    if (!mounted) return;
+    final modeChanged = loaded.connectionMode != _connectionMode;
+    setState(() {
+      _defaultSettings = loaded;
+      // Sync connection mode and device name so UI reflects saved settings
+      _connectionMode = loaded.connectionMode;
+      _deviceName = loaded.deviceName;
+      _activeService = _connectionMode == ConnectionMode.ble
+          ? _bleService
+          : _classicService;
+    });
+    if (modeChanged && _connectionMode == ConnectionMode.classic) {
+      _loadBondedDevices();
+    }
+  }
+
+  Future<void> _loadHistory() async {
+    final loadedHistory = await _historyService.getHistory();
+    if (mounted) setState(() => history = loadedHistory);
+  }
+
   List<PidRunHistory> get _filteredHistory {
     final filter = _historyFilter;
-    if (filter == null) {
-      return history;
-    }
+    if (filter == null) return history;
     return history.where((run) => run.captureType == filter).toList();
   }
 
   void _handleHistoryFilterChanged(RunCaptureType? filter) {
-    setState(() {
-      _historyFilter = filter;
-    });
+    setState(() => _historyFilter = filter);
   }
 
   Future<void> _saveRunToHistory(
@@ -378,7 +522,6 @@ class _DashboardPageState extends State<DashboardPage> {
     );
     await _historyService.addRun(run);
     await _loadHistory();
-    debugPrint('📝 [DASHBOARD] Run saved to history: $run');
   }
 
   void _restoreConfig(PidRunHistory run) {
@@ -389,25 +532,11 @@ class _DashboardPageState extends State<DashboardPage> {
       maxSpeedController.text = run.maxSpeed.toString();
       baseSpeedController.text = run.baseSpeed.toString();
     });
-
-    // Send all values to hardware
-    bluetoothService.sendCommand(
-      '${AppConstants.cmdKpPrefix}${run.kp.toStringAsFixed(2)}',
-    );
-    bluetoothService.sendCommand(
-      '${AppConstants.cmdKiPrefix}${run.ki.toStringAsFixed(2)}',
-    );
-    bluetoothService.sendCommand(
-      '${AppConstants.cmdKdPrefix}${run.kd.toStringAsFixed(2)}',
-    );
-    bluetoothService.sendCommand(
-      '${AppConstants.cmdMaxSpeedPrefix}${run.maxSpeed}',
-    );
-    bluetoothService.sendCommand(
-      '${AppConstants.cmdBaseSpeedPrefix}${run.baseSpeed}',
-    );
-
-    debugPrint('🔄 [DASHBOARD] Configuration restored: ${run.pidSummary}');
+    _activeService?.sendCommand('${AppConstants.cmdKpPrefix}${run.kp.toStringAsFixed(2)}');
+    _activeService?.sendCommand('${AppConstants.cmdKiPrefix}${run.ki.toStringAsFixed(2)}');
+    _activeService?.sendCommand('${AppConstants.cmdKdPrefix}${run.kd.toStringAsFixed(2)}');
+    _activeService?.sendCommand('${AppConstants.cmdMaxSpeedPrefix}${run.maxSpeed}');
+    _activeService?.sendCommand('${AppConstants.cmdBaseSpeedPrefix}${run.baseSpeed}');
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -427,11 +556,13 @@ class _DashboardPageState extends State<DashboardPage> {
     await _loadHistory();
   }
 
+  // ---------------------------------------------------------------------------
+  // Robot control
+  // ---------------------------------------------------------------------------
+
   int _currentElapsedRuntimeMs() {
     final startedAt = _currentRunStartedAt;
-    if (startedAt == null) {
-      return runtime;
-    }
+    if (startedAt == null) return runtime;
     final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
     return elapsed > 0 ? elapsed : runtime;
   }
@@ -445,8 +576,7 @@ class _DashboardPageState extends State<DashboardPage> {
       });
       _currentRunStartedAt = DateTime.now();
       _currentRunSaved = false;
-      debugPrint('▶️  [APP] Robot STARTED');
-      bluetoothService.sendCommand(AppConstants.cmdRunStart);
+      _activeService?.sendCommand(AppConstants.cmdRunStart);
       return;
     }
 
@@ -457,21 +587,13 @@ class _DashboardPageState extends State<DashboardPage> {
       isRunning = false;
       runtime = elapsed;
     });
-    debugPrint('⏹️  [APP] Robot STOPPED');
-    bluetoothService.sendCommand(AppConstants.cmdRunStop);
+    _activeService?.sendCommand(AppConstants.cmdRunStop);
 
-    if (!shouldAutoSave) {
-      return;
-    }
+    if (!shouldAutoSave) return;
 
     _currentRunSaved = true;
-    await _saveRunToHistory(
-      elapsed,
-      captureType: RunCaptureType.startStop,
-    );
-    if (!mounted) {
-      return;
-    }
+    await _saveRunToHistory(elapsed, captureType: RunCaptureType.startStop);
+    if (!mounted) return;
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Run saved automatically')));
@@ -479,16 +601,14 @@ class _DashboardPageState extends State<DashboardPage> {
 
   void _handleAutoStopChanged(bool enabled) {
     setState(() => autoStopOnFinish = enabled);
-    bluetoothService.sendCommand(
+    _activeService?.sendCommand(
       '${AppConstants.cmdAutoStopPrefix}${enabled ? 1 : 0}',
     );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         duration: const Duration(milliseconds: 900),
         content: Text(
-          enabled
-              ? 'Auto-stop on finish enabled'
-              : 'Auto-stop on finish disabled',
+          enabled ? 'Auto-stop on finish enabled' : 'Auto-stop on finish disabled',
         ),
       ),
     );
@@ -496,61 +616,49 @@ class _DashboardPageState extends State<DashboardPage> {
 
   void _handleLineLostRecoveryChanged(bool enabled) {
     setState(() => lineLostRecoveryEnabled = enabled);
-    bluetoothService.sendCommand(
+    _activeService?.sendCommand(
       '${AppConstants.cmdLineLostRecoveryPrefix}${enabled ? 1 : 0}',
     );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         duration: const Duration(milliseconds: 900),
         content: Text(
-          enabled
-              ? 'Line-lost recovery enabled'
-              : 'Line-lost recovery disabled',
+          enabled ? 'Line-lost recovery enabled' : 'Line-lost recovery disabled',
         ),
       ),
     );
   }
 
   void _handlePChanged(double value) {
-    setState(() {
-      kp = value;
-    });
+    setState(() => kp = value);
     _sendPidValuesQuietly();
   }
 
   void _handleIChanged(double value) {
-    setState(() {
-      ki = value;
-    });
+    setState(() => ki = value);
     _sendPidValuesQuietly();
   }
 
   void _handleDChanged(double value) {
-    setState(() {
-      kd = value;
-    });
+    setState(() => kd = value);
     _sendPidValuesQuietly();
   }
 
   void _handleCalibrationModeChanged(bool enabled) {
     setState(() => isCalibrationMode = enabled);
     if (enabled) {
-      bluetoothService.sendCommand(AppConstants.cmdQueryThresholds);
+      _activeService?.sendCommand(AppConstants.cmdQueryThresholds);
     }
   }
 
   void _handleSensorThresholdPreview(int index, int value) {
-    if (index < 0 || index >= sensorThresholds.length) {
-      return;
-    }
-    setState(() {
-      sensorThresholds[index] = value;
-    });
+    if (index < 0 || index >= sensorThresholds.length) return;
+    setState(() => sensorThresholds[index] = value);
   }
 
   void _handleSensorThresholdCommit(int index, int value) {
     _handleSensorThresholdPreview(index, value);
-    bluetoothService.sendThresholdForSensor(index: index, threshold: value);
+    _activeService?.sendThresholdForSensor(index: index, threshold: value);
   }
 
   void _handleAllSensorThresholdCommit(int value) {
@@ -559,7 +667,7 @@ class _DashboardPageState extends State<DashboardPage> {
       sensorThresholds = List<int>.filled(AppConstants.sensorCount, normalized);
       allThresholdController.text = normalized.toString();
     });
-    bluetoothService.sendThresholdForAllSensors(normalized);
+    _activeService?.sendThresholdForAllSensors(normalized);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         duration: const Duration(milliseconds: 900),
@@ -570,9 +678,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Future<void> _handleSaveCalibration() async {
     await _settingsService.saveSensorThresholds(sensorThresholds);
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         duration: Duration(milliseconds: 900),
@@ -582,35 +688,15 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   void _sendPidValuesQuietly() {
-    bluetoothService.sendCommand(
-      '${AppConstants.cmdKpPrefix}${kp.toStringAsFixed(2)}',
-    );
-    bluetoothService.sendCommand(
-      '${AppConstants.cmdKiPrefix}${ki.toStringAsFixed(2)}',
-    );
-    bluetoothService.sendCommand(
-      '${AppConstants.cmdKdPrefix}${kd.toStringAsFixed(2)}',
-    );
-
-    debugPrint(
-      '📤 [APP] PID autosent: Kp=${kp.toStringAsFixed(2)}, Ki=${ki.toStringAsFixed(2)}, Kd=${kd.toStringAsFixed(2)}',
-    );
+    _activeService?.sendCommand('${AppConstants.cmdKpPrefix}${kp.toStringAsFixed(2)}');
+    _activeService?.sendCommand('${AppConstants.cmdKiPrefix}${ki.toStringAsFixed(2)}');
+    _activeService?.sendCommand('${AppConstants.cmdKdPrefix}${kd.toStringAsFixed(2)}');
   }
 
   void _handlePidSend() {
-    bluetoothService.sendCommand(
-      '${AppConstants.cmdKpPrefix}${kp.toStringAsFixed(2)}',
-    );
-    bluetoothService.sendCommand(
-      '${AppConstants.cmdKiPrefix}${ki.toStringAsFixed(2)}',
-    );
-    bluetoothService.sendCommand(
-      '${AppConstants.cmdKdPrefix}${kd.toStringAsFixed(2)}',
-    );
-
-    debugPrint(
-      '📤 [APP] PID sent: Kp=${kp.toStringAsFixed(2)}, Ki=${ki.toStringAsFixed(2)}, Kd=${kd.toStringAsFixed(2)}',
-    );
+    _activeService?.sendCommand('${AppConstants.cmdKpPrefix}${kp.toStringAsFixed(2)}');
+    _activeService?.sendCommand('${AppConstants.cmdKiPrefix}${ki.toStringAsFixed(2)}');
+    _activeService?.sendCommand('${AppConstants.cmdKdPrefix}${kd.toStringAsFixed(2)}');
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -649,12 +735,28 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
+
+  @override
+  void dispose() {
+    maxSpeedController.dispose();
+    baseSpeedController.dispose();
+    allThresholdController.dispose();
+    _scanSubscription?.cancel();
+    _isScanningSubscription?.cancel();
+    _classicService?.dispose();
+    _bleService?.dispose();
+    super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Build
+  // ---------------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
-    debugPrint(
-      '🏗️ [DASHBOARD] Building... current sensorOnLine: length=${sensorOnLine.length}, values=${sensorOnLine.map((s) => s ? 'ON' : 'OFF').join(',')}',
-    );
-
     return Scaffold(
       appBar: AppBar(
         title: Text.rich(
@@ -675,8 +777,15 @@ class _DashboardPageState extends State<DashboardPage> {
           Stack(
             children: [
               IconButton(
-                icon: const Icon(Icons.bluetooth),
+                icon: Icon(
+                  _connectionMode == ConnectionMode.ble
+                      ? Icons.bluetooth_searching
+                      : Icons.bluetooth,
+                ),
                 onPressed: _navigateToBluetoothSettings,
+                tooltip: _connectionMode == ConnectionMode.ble
+                    ? 'BLE Connection'
+                    : 'Bluetooth Connection',
               ),
               if (isConnected)
                 Positioned(
@@ -729,9 +838,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 lineLostRecoveryEnabled: lineLostRecoveryEnabled,
                 onAutoStopChanged: _handleAutoStopChanged,
                 onLineLostRecoveryChanged: _handleLineLostRecoveryChanged,
-                onStartStop: () {
-                  _handleStartStop();
-                },
+                onStartStop: _handleStartStop,
               ),
               const SizedBox(height: 12),
               PidCard(
@@ -750,20 +857,15 @@ class _DashboardPageState extends State<DashboardPage> {
                 baseSpeedController: baseSpeedController,
                 onMaxSpeedSend: () {
                   final maxSpeed = maxSpeedController.text;
-                  debugPrint(
-                    '⚡ [APP] Max Speed button pressed, value: $maxSpeed',
+                  _activeService?.sendCommand(
+                    '${AppConstants.cmdMaxSpeedPrefix}$maxSpeed',
                   );
-                  final command = '${AppConstants.cmdMaxSpeedPrefix}$maxSpeed';
-                  bluetoothService.sendCommand(command);
                 },
                 onBaseSpeedSend: () {
                   final baseSpeed = baseSpeedController.text;
-                  debugPrint(
-                    '⚡ [APP] Base Speed button pressed, value: $baseSpeed',
+                  _activeService?.sendCommand(
+                    '${AppConstants.cmdBaseSpeedPrefix}$baseSpeed',
                   );
-                  final command =
-                      '${AppConstants.cmdBaseSpeedPrefix}$baseSpeed';
-                  bluetoothService.sendCommand(command);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       duration: const Duration(milliseconds: 900),

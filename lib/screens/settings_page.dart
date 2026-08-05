@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/settings_service.dart';
+import '../services/robot_service.dart';
 
 class SettingsPage extends StatefulWidget {
   final AppSettings initialSettings;
@@ -21,6 +22,8 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _maxSpeedController;
   late final TextEditingController _baseSpeedController;
   late final TextEditingController _thresholdController;
+  late final TextEditingController _deviceNameController;
+  late ConnectionMode _connectionMode;
 
   @override
   void initState() {
@@ -43,6 +46,10 @@ class _SettingsPageState extends State<SettingsPage> {
     _thresholdController = TextEditingController(
       text: widget.initialSettings.threshold.toString(),
     );
+    _deviceNameController = TextEditingController(
+      text: widget.initialSettings.deviceName,
+    );
+    _connectionMode = widget.initialSettings.connectionMode;
   }
 
   @override
@@ -53,6 +60,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _maxSpeedController.dispose();
     _baseSpeedController.dispose();
     _thresholdController.dispose();
+    _deviceNameController.dispose();
     super.dispose();
   }
 
@@ -88,6 +96,10 @@ class _SettingsPageState extends State<SettingsPage> {
       maxSpeed: int.parse(_maxSpeedController.text.trim()),
       baseSpeed: int.parse(_baseSpeedController.text.trim()),
       threshold: int.parse(_thresholdController.text.trim()),
+      connectionMode: _connectionMode,
+      deviceName: _deviceNameController.text.trim().isEmpty
+          ? widget.initialSettings.deviceName
+          : _deviceNameController.text.trim(),
     );
 
     await _settingsService.saveSettings(settings);
@@ -107,6 +119,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _maxSpeedController.text = defaults.maxSpeed.toString();
       _baseSpeedController.text = defaults.baseSpeed.toString();
       _thresholdController.text = defaults.threshold.toString();
+      // connection mode and device name are preserved (not reset)
     });
 
     if (mounted) {
@@ -204,6 +217,40 @@ class _SettingsPageState extends State<SettingsPage> {
                   border: OutlineInputBorder(),
                 ),
                 validator: _validateInt,
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Connection',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _deviceNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Robot device name',
+                  helperText: 'Exact name or prefix used to find your robot',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SegmentedButton<ConnectionMode>(
+                segments: const [
+                  ButtonSegment(
+                    value: ConnectionMode.classic,
+                    label: Text('Classic BT'),
+                    icon: Icon(Icons.bluetooth),
+                  ),
+                  ButtonSegment(
+                    value: ConnectionMode.ble,
+                    label: Text('BLE'),
+                    icon: Icon(Icons.bluetooth_searching),
+                  ),
+                ],
+                selected: {_connectionMode},
+                onSelectionChanged: (s) =>
+                    setState(() => _connectionMode = s.first),
               ),
               const SizedBox(height: 20),
               FilledButton.icon(

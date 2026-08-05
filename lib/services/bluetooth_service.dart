@@ -6,25 +6,41 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../constants/app_constants.dart';
+import 'robot_service.dart';
 
-/// Service for managing Bluetooth communication with the line follower robot.
-class BluetoothService {
+export 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart'
+    show BluetoothDevice;
+
+/// Classic Bluetooth (SPP) implementation of [RobotService].
+///
+/// Uses [flutter_bluetooth_serial] to connect to already-paired / bonded
+/// devices via the Serial Port Profile.
+class BluetoothService implements RobotService {
   BluetoothConnection? _connection;
   StreamSubscription<Uint8List>? _inputSubscription;
   String _incomingBuffer = '';
   List<int> _sensorThresholds = List<int>.filled(
     AppConstants.sensorCount,
-    2000,
+    AppConstants.defaultThreshold,
   );
 
-  // Callbacks for handling incoming data and connection changes
+  // ---------------------------------------------------------------------------
+  // Callbacks
+  // ---------------------------------------------------------------------------
+  @override
   final Function(String line)? onDataReceived;
+  @override
   final Function(List<int> rawValues, List<bool> onLine)? onSensorDataReceived;
+  @override
   final Function(int runtimeMs)? onTrackFinished;
+  @override
   final Function(String command, String value)? onAckReceived;
+  @override
   final Function(List<int> thresholds)? onThresholdsReceived;
+  @override
   final VoidCallback? onDisconnected;
 
+  @override
   bool get isConnected => _connection != null;
 
   BluetoothService({
@@ -36,7 +52,12 @@ class BluetoothService {
     this.onDisconnected,
   });
 
-  /// Initialize Bluetooth permissions.
+  // ---------------------------------------------------------------------------
+  // Classic-BT specific API
+  // ---------------------------------------------------------------------------
+
+  /// Request required OS permissions (scan, connect, location).
+  @override
   Future<bool> initializePermissions() async {
     try {
       final statuses = await [
@@ -44,7 +65,6 @@ class BluetoothService {
         Permission.bluetoothConnect,
         Permission.locationWhenInUse,
       ].request();
-
       return statuses.values.every((status) => status.isGranted);
     } catch (e) {
       debugPrint('Permission initialization error: $e');
@@ -52,7 +72,7 @@ class BluetoothService {
     }
   }
 
-  /// Get a list of bonded Bluetooth devices.
+  /// Get a list of bonded / paired Bluetooth devices.
   Future<List<BluetoothDevice>> getBondedDevices() async {
     try {
       return await FlutterBluetoothSerial.instance.getBondedDevices();
@@ -62,7 +82,7 @@ class BluetoothService {
     }
   }
 
-  /// Connect to a specific Bluetooth device.
+  /// Connect to a specific classic Bluetooth device.
   Future<bool> connect(BluetoothDevice device) async {
     if (_connection != null) {
       await disconnect();
@@ -109,7 +129,7 @@ class BluetoothService {
     }
   }
 
-  /// Disconnect from the Bluetooth device.
+  /// Disconnect from the classic Bluetooth device.
   Future<void> disconnect() async {
     debugPrint('🔌 [BT DISCONNECT] Disconnecting from Bluetooth device...');
     await _inputSubscription?.cancel();
@@ -119,7 +139,11 @@ class BluetoothService {
     debugPrint('✅ [BT DISCONNECT] Successfully disconnected');
   }
 
-  /// Send a command to the connected device.
+  // ---------------------------------------------------------------------------
+  // RobotService implementation
+  // ---------------------------------------------------------------------------
+
+  @override
   bool sendCommand(String command) {
     if (_connection == null) {
       debugPrint('❌ [BT SEND] FAILED - Not connected. Command: $command');
@@ -143,12 +167,12 @@ class BluetoothService {
     }
   }
 
-  /// Set one threshold value for all sensors in hardware and app display logic.
+  @override
   bool sendThresholdForAllSensors(int threshold) {
     return sendCommand('${AppConstants.cmdThresholdAllPrefix}$threshold');
   }
 
-  /// Set threshold value for a single sensor by index.
+  @override
   bool sendThresholdForSensor({required int index, required int threshold}) {
     if (index < 0 || index >= AppConstants.sensorCount) {
       debugPrint('❌ [THRESHOLD] Invalid sensor index: $index');
@@ -159,7 +183,15 @@ class BluetoothService {
     );
   }
 
-  /// Handle incoming data from the Bluetooth device.
+  @override
+  Future<void> dispose() async {
+    await disconnect();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Incoming data handling
+  // ---------------------------------------------------------------------------
+
   void _handleIncomingData(Uint8List data) {
     final chunk = utf8.decode(data, allowMalformed: true);
     debugPrint('📥 [BT RECEIVE] Raw data: "$chunk" (${data.length} bytes)');
@@ -178,40 +210,27 @@ class BluetoothService {
     }
   }
 
-  /// Process a complete line of incoming data.
   void _processLine(String line) {
     debugPrint(
       '📨 [BT PROCESS] Processing line: "$line" (length: ${line.length})',
     );
 
-    // Check for sensor data (format: SENSORS:val0,val1,...,val11)
+    // SENSORS:val0,val1,...,val11
     if (line.startsWith(AppConstants.respSensors)) {
       final payload = line.substring(AppConstants.respSensors.length);
       final parts = payload.split(',');
 
-      debugPrint(
-        '📥 [SENSORS] Raw payload: "$payload" (${parts.length} values)',
-      );
-
       if (parts.length == AppConstants.sensorCount) {
-        // Parse raw analog values
-        final rawValues = parts
-            .map((v) => int.tryParse(v.trim()) ?? 0)
-            .toList();
-
+        final rawValues = parts.map((v) => int.tryParse(v.trim()) ?? 0).toList();
         final thresholds = _sensorThresholds.length == AppConstants.sensorCount
             ? _sensorThresholds
-            : List<int>.filled(AppConstants.sensorCount, 2000);
+            : List<int>.filled(AppConstants.sensorCount, AppConstants.defaultThreshold);
         final onLine = List<bool>.generate(
           AppConstants.sensorCount,
           (index) => rawValues[index] > thresholds[index],
         );
-
-        // Debug output for sensor changes
         final sensorStates = onLine.map((s) => s ? '🟢' : '⚫').join(' ');
         debugPrint('🔍 [SENSORS] Sensor states: [$sensorStates]');
-        debugPrint('   └─ Raw values: ${rawValues.join(', ')}');
-
         onSensorDataReceived?.call(rawValues, onLine);
       } else {
         debugPrint(
@@ -221,6 +240,7 @@ class BluetoothService {
       return;
     }
 
+    // THRESHOLDS:val0,...,val11
     if (line.startsWith(AppConstants.respThresholds)) {
       final payload = line.substring(AppConstants.respThresholds.length);
       final parts = payload.split(',');
@@ -232,22 +252,18 @@ class BluetoothService {
           '🎚️ [THRESHOLDS] Updated thresholds: ${_sensorThresholds.join(', ')}',
         );
         onThresholdsReceived?.call(List<int>.from(_sensorThresholds));
-      } else {
-        debugPrint(
-          '⚠️ [THRESHOLDS] Expected ${AppConstants.sensorCount} values, got ${parts.length}',
-        );
       }
       return;
     }
 
-    // Check for track finished
+    // TRACK_FINISHED
     if (line == AppConstants.respTrackFinished) {
       debugPrint('🏁 [TRACK] Track finished!');
-      onTrackFinished?.call(0); // Runtime will come from TIME= response
+      onTrackFinished?.call(0);
       return;
     }
 
-    // Check for time response (format: TIME=123456)
+    // TIME=123456
     if (line.startsWith(AppConstants.respTimePrefix)) {
       final timeStr = line.substring(AppConstants.respTimePrefix.length);
       final runtime = int.tryParse(timeStr) ?? 0;
@@ -256,11 +272,10 @@ class BluetoothService {
       return;
     }
 
-    // Check for ACK response (format: ACK:COMMAND=VALUE)
+    // ACK:COMMAND=VALUE
     if (line.startsWith(AppConstants.respAck)) {
       final ackContent = line.substring(AppConstants.respAck.length);
       debugPrint('✅ [ACK] Received: $ackContent');
-      // Parse command and value from ACK (e.g., "KP=30.0")
       final eqIndex = ackContent.indexOf('=');
       if (eqIndex > 0) {
         final command = ackContent.substring(0, eqIndex);
@@ -295,20 +310,14 @@ class BluetoothService {
       return;
     }
 
-    // Otherwise, treat it as a regular message
+    // Generic message
     onDataReceived?.call(line);
   }
 
-  /// Handle disconnection from the Bluetooth device.
   void _handleDisconnected() {
     debugPrint('⚠️  [BT DISCONNECT] Bluetooth disconnected unexpectedly!');
     _connection = null;
     _incomingBuffer = '';
     onDisconnected?.call();
-  }
-
-  /// Clean up resources.
-  Future<void> dispose() async {
-    await disconnect();
   }
 }

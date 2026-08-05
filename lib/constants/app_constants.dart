@@ -1,9 +1,32 @@
 /// Application-wide constants for the Line Follower Control app.
 class AppConstants {
-  // Device names and identifiers
-  static const String defaultDeviceName = 'ESP32_PID_Pro';
+  // ---------------------------------------------------------------------------
+  // Device defaults
+  // ---------------------------------------------------------------------------
 
+  /// Default device name shown in settings (classic BT & BLE).
+  /// Users can change this to match their robot's advertised name.
+  static const String defaultDeviceName = 'LFR_V5_Tuner';
+
+  // ---------------------------------------------------------------------------
+  // BLE — Nordic UART Service (NUS) UUIDs
+  // ---------------------------------------------------------------------------
+
+  /// NUS Service UUID
+  static const String bleServiceUuid =
+      '6E400001-B5A3-F393-E0A9-E50E24DCCA9E';
+
+  /// NUS RX characteristic UUID (app → bot WRITE)
+  static const String bleRxCharUuid =
+      '6E400002-B5A3-F393-E0A9-E50E24DCCA9E';
+
+  /// NUS TX characteristic UUID (bot → app NOTIFY)
+  static const String bleTxCharUuid =
+      '6E400003-B5A3-F393-E0A9-E50E24DCCA9E';
+
+  // ---------------------------------------------------------------------------
   // Default PID configuration values (matching hardware defaults)
+  // ---------------------------------------------------------------------------
   static const double defaultKp = 30.0;
   static const double defaultKi = 0.0;
   static const double defaultKd = 0.0;
@@ -25,7 +48,10 @@ class AppConstants {
   // Message history limit
   static const int maxHistoryItems = 20;
 
-  // Bluetooth commands (matching hardware protocol)
+  // ---------------------------------------------------------------------------
+  // Hardware protocol commands (app → bot)
+  // Both classic BT and BLE hardware use the same protocol.
+  // ---------------------------------------------------------------------------
   static const String cmdRunStart = 'RUN=1';
   static const String cmdRunStop = 'RUN=0';
   static const String cmdKpPrefix = 'KP=';
@@ -42,16 +68,21 @@ class AppConstants {
   static const String cmdAutoStopPrefix = 'AUTOSTOP=';
   static const String cmdLineLostRecoveryPrefix = 'LINELOST=';
 
-  // Response prefixes from hardware
+  // ---------------------------------------------------------------------------
+  // Response prefixes from hardware (bot → app)
+  // Both classic BT and BLE hardware use the same protocol.
+  // ---------------------------------------------------------------------------
   static const String respSensors = 'SENSORS:';
   static const String respAck = 'ACK:';
   static const String respTrackFinished = 'TRACK_FINISHED';
   static const String respTimePrefix = 'TIME=';
   static const String respThresholds = 'THRESHOLDS:';
 
+  // ---------------------------------------------------------------------------
   // UI strings
+  // ---------------------------------------------------------------------------
   static const String appTitle = 'LineRobo Companion Pro';
-  static const String bluetoothSettingsTitle = 'Bluetooth Settings';
+  static const String bluetoothSettingsTitle = 'Connection Settings';
   static const String sensorsLabel = 'Sensors';
   static const String pidLabel = 'PID';
   static const String speedLabel = 'Speed';
@@ -64,10 +95,10 @@ class AppConstants {
   static const String disconnectButtonLabel = 'Disconnect';
   static const String refreshButtonLabel = 'Refresh';
   static const String sendButtonLabel = 'Send';
+  static const String scanButtonLabel = 'Scan';
 
   // Error messages
-  static const String failedToLoadDevicesError =
-      'Failed to load paired devices';
+  static const String failedToLoadDevicesError = 'Failed to load paired devices';
   static const String connectionFailedError = 'Connection failed';
   static const String disconnectedStatusMessage = 'Disconnected';
   static const String connectedStatusMessagePrefix = 'Connected to ';

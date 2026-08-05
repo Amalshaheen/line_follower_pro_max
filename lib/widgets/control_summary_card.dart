@@ -108,7 +108,12 @@ class ControlSummaryCard extends StatelessWidget {
                 Expanded(
                   child: Row(
                     children: [
-                      const Text('Auto stop on finish'),
+                      const Flexible(
+                        child: Text(
+                          'Auto stop on finish',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       const Spacer(),
                       Switch(
                         value: autoStopOnFinish,
@@ -122,7 +127,12 @@ class ControlSummaryCard extends StatelessWidget {
                 Expanded(
                   child: Row(
                     children: [
-                      const Text('Line-lost return'),
+                      const Flexible(
+                        child: Text(
+                          'Line-lost return',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       const Spacer(),
                       Switch(
                         value: lineLostRecoveryEnabled,

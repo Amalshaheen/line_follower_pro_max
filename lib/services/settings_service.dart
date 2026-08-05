@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/app_constants.dart';
+import 'robot_service.dart';
 
 class AppSettings {
   final double kp;
@@ -10,6 +11,12 @@ class AppSettings {
   final int baseSpeed;
   final int threshold;
 
+  /// Which connection transport to use when connecting to the robot.
+  final ConnectionMode connectionMode;
+
+  /// The device name (or name prefix) to scan/filter for.
+  final String deviceName;
+
   const AppSettings({
     required this.kp,
     required this.ki,
@@ -17,6 +24,8 @@ class AppSettings {
     required this.maxSpeed,
     required this.baseSpeed,
     required this.threshold,
+    this.connectionMode = ConnectionMode.classic,
+    this.deviceName = AppConstants.defaultDeviceName,
   });
 
   factory AppSettings.defaults() {
@@ -27,6 +36,8 @@ class AppSettings {
       maxSpeed: AppConstants.defaultMaxSpeed,
       baseSpeed: AppConstants.defaultBaseSpeed,
       threshold: AppConstants.defaultThreshold,
+      connectionMode: ConnectionMode.classic,
+      deviceName: AppConstants.defaultDeviceName,
     );
   }
 
@@ -37,6 +48,8 @@ class AppSettings {
     int? maxSpeed,
     int? baseSpeed,
     int? threshold,
+    ConnectionMode? connectionMode,
+    String? deviceName,
   }) {
     return AppSettings(
       kp: kp ?? this.kp,
@@ -45,6 +58,8 @@ class AppSettings {
       maxSpeed: maxSpeed ?? this.maxSpeed,
       baseSpeed: baseSpeed ?? this.baseSpeed,
       threshold: threshold ?? this.threshold,
+      connectionMode: connectionMode ?? this.connectionMode,
+      deviceName: deviceName ?? this.deviceName,
     );
   }
 }
@@ -57,6 +72,8 @@ class SettingsService {
   static const String _baseSpeedKey = 'settings.default.baseSpeed';
   static const String _thresholdKey = 'settings.default.threshold';
   static const String _sensorThresholdsKey = 'settings.calibration.thresholds';
+  static const String _connectionModeKey = 'settings.connection.mode';
+  static const String _deviceNameKey = 'settings.connection.deviceName';
 
   SharedPreferences? _prefs;
 
@@ -68,6 +85,9 @@ class SettingsService {
     await init();
     final defaults = AppSettings.defaults();
 
+    final modeStr = _prefs?.getString(_connectionModeKey);
+    final mode = modeStr == 'ble' ? ConnectionMode.ble : ConnectionMode.classic;
+
     return AppSettings(
       kp: _prefs?.getDouble(_kpKey) ?? defaults.kp,
       ki: _prefs?.getDouble(_kiKey) ?? defaults.ki,
@@ -75,6 +95,8 @@ class SettingsService {
       maxSpeed: _prefs?.getInt(_maxSpeedKey) ?? defaults.maxSpeed,
       baseSpeed: _prefs?.getInt(_baseSpeedKey) ?? defaults.baseSpeed,
       threshold: _prefs?.getInt(_thresholdKey) ?? defaults.threshold,
+      connectionMode: mode,
+      deviceName: _prefs?.getString(_deviceNameKey) ?? defaults.deviceName,
     );
   }
 
@@ -86,6 +108,11 @@ class SettingsService {
     await _prefs?.setInt(_maxSpeedKey, settings.maxSpeed);
     await _prefs?.setInt(_baseSpeedKey, settings.baseSpeed);
     await _prefs?.setInt(_thresholdKey, settings.threshold);
+    await _prefs?.setString(
+      _connectionModeKey,
+      settings.connectionMode == ConnectionMode.ble ? 'ble' : 'classic',
+    );
+    await _prefs?.setString(_deviceNameKey, settings.deviceName);
   }
 
   Future<void> saveSensorThresholds(List<int> thresholds) async {
@@ -129,5 +156,7 @@ class SettingsService {
     await _prefs?.remove(_baseSpeedKey);
     await _prefs?.remove(_thresholdKey);
     await _prefs?.remove(_sensorThresholdsKey);
+    // Note: connection mode and device name are intentionally NOT reset
+    // as they are physical setup choices, not PID defaults.
   }
 }
