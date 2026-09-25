@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../models/robot_state.dart';
 
 /// Enumerates the two supported connection transport types.
 enum ConnectionMode { classic, ble }
@@ -19,9 +20,12 @@ abstract class RobotService {
   Function(String line)? get onDataReceived;
 
   /// Called when parsed sensor data arrives.
-  /// [rawValues] — 12 analog readings (0–4095).
+  /// [rawValues] — 12 analog readings (0–255 or 0–4095).
   /// [onLine]    — 12 boolean flags (true = sensor sees the line).
   Function(List<int> rawValues, List<bool> onLine)? get onSensorDataReceived;
+
+  /// Called when high-speed 15-byte binary telemetry arrives over BLE.
+  Function(TelemetryData telemetry)? get onTelemetryReceived;
 
   /// Called when the track-finished event arrives, with [runtimeMs] ≥ 0.
   Function(int runtimeMs)? get onTrackFinished;
@@ -46,7 +50,7 @@ abstract class RobotService {
   // Lifecycle
   // ---------------------------------------------------------------------------
 
-  /// Request all required OS permissions.  Returns true if all are granted.
+  /// Request all required OS permissions. Returns true if all are granted.
   Future<bool> initializePermissions();
 
   /// Release all resources.
@@ -58,8 +62,8 @@ abstract class RobotService {
 
   /// Send a raw command string to the robot.
   ///
-  /// The command must follow the hardware protocol, e.g. `KP=30.00`,
-  /// `RUN=1`, `THRALL=2000`.
+  /// Supports concise tuning commands (`P1.25`, `M255`, `S`) and compound
+  /// protocol commands (`KP=30.00`, `RUN=1`, `THRALL=2000`).
   bool sendCommand(String command);
 
   /// Convenience: set a single global threshold for all sensors.

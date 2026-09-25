@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../widgets/index.dart';
 import '../constants/app_constants.dart';
-import '../models/pid_run_history.dart';
+import '../models/index.dart';
 import '../services/index.dart';
 import 'bluetooth_settings_page.dart';
 import 'settings_page.dart';
@@ -33,6 +33,8 @@ class _DashboardPageState extends State<DashboardPage> {
   bool isCalibrationMode = false;
   bool autoStopOnFinish = true;
   bool lineLostRecoveryEnabled = true;
+  double lineError = 0.0;
+  bool lineDetected = true;
   DateTime? _currentRunStartedAt;
   bool _currentRunSaved = false;
 
@@ -124,6 +126,7 @@ class _DashboardPageState extends State<DashboardPage> {
     _classicService = BluetoothService(
       onDataReceived: _onDataReceived,
       onSensorDataReceived: _onSensorDataReceived,
+      onTelemetryReceived: _onTelemetryReceived,
       onTrackFinished: _onTrackFinished,
       onAckReceived: _onAckReceived,
       onThresholdsReceived: _onThresholdsReceived,
@@ -133,6 +136,7 @@ class _DashboardPageState extends State<DashboardPage> {
     _bleService = BleService(
       onDataReceived: _onDataReceived,
       onSensorDataReceived: _onSensorDataReceived,
+      onTelemetryReceived: _onTelemetryReceived,
       onTrackFinished: _onTrackFinished,
       onAckReceived: _onAckReceived,
       onThresholdsReceived: _onThresholdsReceived,
@@ -177,6 +181,16 @@ class _DashboardPageState extends State<DashboardPage> {
     setState(() {
       sensorOnLine = onLine;
       sensorRawValues = rawValues;
+    });
+  }
+
+  void _onTelemetryReceived(TelemetryData telemetry) {
+    if (!mounted) return;
+    setState(() {
+      lineError = telemetry.error;
+      lineDetected = telemetry.lineDetected;
+      isRunning = telemetry.motorsRunning;
+      sensorRawValues = telemetry.sensors;
     });
   }
 
@@ -820,6 +834,8 @@ class _DashboardPageState extends State<DashboardPage> {
                 showAnalog: showAnalogSensors,
                 isCalibrationMode: isCalibrationMode,
                 sensorThresholds: sensorThresholds,
+                lineError: lineError,
+                lineDetected: lineDetected,
                 onShowAnalogChanged: (value) {
                   setState(() => showAnalogSensors = value);
                 },

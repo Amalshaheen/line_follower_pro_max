@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../constants/app_constants.dart';
+import '../models/robot_state.dart';
 import 'robot_service.dart';
 
 export 'package:flutter_blue_plus/flutter_blue_plus.dart'
@@ -12,12 +13,12 @@ export 'package:flutter_blue_plus/flutter_blue_plus.dart'
 
 /// BLE (Nordic UART Service) implementation of [RobotService].
 ///
-/// Scans for BLE peripherals and connects to one using the NUS service.
-/// The hardware must speak the same app-level text protocol as the classic
-/// Bluetooth version:
-///
-///   App → Bot : "KP=30.00\n", "RUN=1\n", "THRALL=2000\n", …
-///   Bot → App : "SENSORS:0,0,…\n", "ACK:KP=30.00\n", …
+/// Features:
+/// - 15-byte compact binary telemetry parsing (12 sensors, error, flags)
+/// - Fallback ASCII parsing for text responses (ACK, THRESHOLDS, TIME, etc.)
+/// - Reactive telemetry stream and ValueNotifier
+/// - Reliable connection, MTU configuration, and auto-reconnect handling
+/// - Non-blocking command dispatch via writeWithoutResponse
 class BleService implements RobotService {
   BluetoothDevice? _device;
   BluetoothCharacteristic? _txChar; // bot → app (NOTIFY)
@@ -30,6 +31,19 @@ class BleService implements RobotService {
     AppConstants.defaultThreshold,
   );
 
+  // Auto-reconnect configuration
+  bool autoReconnectEnabled = true;
+  bool _isManualDisconnect = false;
+  int _reconnectAttempts = 0;
+  static const int maxReconnectAttempts = 5;
+
+  // Reactive state management
+  final ValueNotifier<TelemetryData?> telemetryNotifier =
+      ValueNotifier<TelemetryData?>(null);
+  final StreamController<TelemetryData> _telemetryController =
+      StreamController<TelemetryData>.broadcast();
+  Stream<TelemetryData> get telemetryStream => _telemetryController.stream;
+
   // ---------------------------------------------------------------------------
   // Callbacks
   // ---------------------------------------------------------------------------
@@ -37,6 +51,8 @@ class BleService implements RobotService {
   final Function(String line)? onDataReceived;
   @override
   final Function(List<int> rawValues, List<bool> onLine)? onSensorDataReceived;
+  @override
+  final Function(TelemetryData telemetry)? onTelemetryReceived;
   @override
   final Function(int runtimeMs)? onTrackFinished;
   @override
@@ -52,6 +68,7 @@ class BleService implements RobotService {
   BleService({
     this.onDataReceived,
     this.onSensorDataReceived,
+    this.onTelemetryReceived,
     this.onTrackFinished,
     this.onAckReceived,
     this.onThresholdsReceived,
@@ -64,10 +81,10 @@ class BleService implements RobotService {
 
   /// Start scanning for BLE peripherals.
   ///
-  /// Filters by the NUS service UUID so only compatible devices appear.
-  /// Returns a stream of [ScanResult]s that the UI can display.
+  /// Filters by NUS service UUID and known device names.
   Stream<List<ScanResult>> startScan({
     Duration timeout = const Duration(seconds: 10),
+    String? deviceNameFilter,
   }) {
     FlutterBluePlus.startScan(
       timeout: timeout,
@@ -77,7 +94,7 @@ class BleService implements RobotService {
   }
 
   /// Start scanning without filtering by service UUID — shows ALL nearby
-  /// BLE devices. Useful when the device doesn't advertise the service UUID.
+  /// BLE devices. Useful if the peripheral doesn't advertise service UUID.
   Stream<List<ScanResult>> startScanAll({
     Duration timeout = const Duration(seconds: 10),
   }) {
@@ -99,33 +116,40 @@ class BleService implements RobotService {
 
   /// Connect to a BLE device discovered via scan.
   Future<bool> connect(BluetoothDevice device) async {
+    _isManualDisconnect = false;
+    _reconnectAttempts = 0;
+
     if (isConnected) {
       await disconnect();
     }
 
     try {
-      debugPrint('🔌 [BLE CONNECT] Connecting to ${device.platformName} …');
-      // Pass mtu: null to skip automatic MTU negotiation, which can cause
-      // AUTHENTICATION_FAILURE disconnects on some dual-mode ESP32 boards.
+      debugPrint('🔌 [BLE CONNECT] Connecting to ${device.platformName} (${device.remoteId}) …');
       await device.connect(
         timeout: const Duration(seconds: 15),
+        autoConnect: false,
         mtu: null,
       );
+
+      // Attempt MTU request (gracefully ignored on iOS or if unsupported)
+      try {
+        await device.requestMtu(256).timeout(const Duration(milliseconds: 1500));
+      } catch (e) {
+        debugPrint('ℹ️ [BLE MTU] Default MTU preserved: $e');
+      }
+
       // Discover services
       final services = await device.discoverServices();
       debugPrint('🔍 [BLE CONNECT] Found ${services.length} services');
-      for (final s in services) {
-        debugPrint('   Service UUID: ${s.serviceUuid}');
-      }
 
-      // Find NUS service — compare normalised UUIDs (strip dashes, lowercase)
+      // Find NUS service
       final targetUuid = AppConstants.bleServiceUuid
-          .replaceAll('-', '').toLowerCase();
+          .replaceAll('-', '')
+          .toLowerCase();
 
       BluetoothService? nus;
       for (final s in services) {
-        final sUuid = s.serviceUuid.str128
-            .replaceAll('-', '').toLowerCase();
+        final sUuid = s.serviceUuid.str128.replaceAll('-', '').toLowerCase();
         if (sUuid == targetUuid) {
           nus = s;
           break;
@@ -133,22 +157,17 @@ class BleService implements RobotService {
       }
 
       if (nus == null) {
-        debugPrint('❌ [BLE CONNECT] NUS service not found. Check that the '
-            'hardware is advertising the correct service UUID.');
+        debugPrint('❌ [BLE CONNECT] NUS service not found on device.');
         await device.disconnect();
         return false;
       }
 
       // Find TX (notify) and RX (write) characteristics
-      final txUuid = AppConstants.bleTxCharUuid
-          .replaceAll('-', '').toLowerCase();
-      final rxUuid = AppConstants.bleRxCharUuid
-          .replaceAll('-', '').toLowerCase();
+      final txUuid = AppConstants.bleTxCharUuid.replaceAll('-', '').toLowerCase();
+      final rxUuid = AppConstants.bleRxCharUuid.replaceAll('-', '').toLowerCase();
 
       for (final c in nus.characteristics) {
-        final uuid = c.characteristicUuid.str128
-            .replaceAll('-', '').toLowerCase();
-        debugPrint('   Characteristic: $uuid');
+        final uuid = c.characteristicUuid.str128.replaceAll('-', '').toLowerCase();
         if (uuid == txUuid) {
           _txChar = c;
         } else if (uuid == rxUuid) {
@@ -157,8 +176,7 @@ class BleService implements RobotService {
       }
 
       if (_txChar == null || _rxChar == null) {
-        debugPrint('❌ [BLE CONNECT] NUS characteristics not found. '
-            'TX=$_txChar, RX=$_rxChar');
+        debugPrint('❌ [BLE CONNECT] NUS characteristics missing: TX=$_txChar, RX=$_rxChar');
         await device.disconnect();
         return false;
       }
@@ -196,6 +214,7 @@ class BleService implements RobotService {
 
   /// Disconnect from the BLE device.
   Future<void> disconnect() async {
+    _isManualDisconnect = true;
     debugPrint('🔌 [BLE DISCONNECT] Disconnecting …');
     await _notifySubscription?.cancel();
     _notifySubscription = null;
@@ -237,9 +256,10 @@ class BleService implements RobotService {
       return false;
     }
     try {
-      final bytes = utf8.encode('$command\n');
-      debugPrint('📤 [BLE SEND] "$command"  (${bytes.length} bytes)');
-      // withoutResponse=true for higher throughput on BLE UART
+      final trimmed = command.trim();
+      final bytes = utf8.encode('$trimmed\n');
+      debugPrint('📤 [BLE SEND] "$trimmed" (${bytes.length} bytes)');
+      // withoutResponse=true avoids UI thread stalls
       _rxChar!.write(bytes, withoutResponse: true);
       return true;
     } catch (e) {
@@ -247,6 +267,18 @@ class BleService implements RobotService {
       return false;
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Fast Concise Commands (Phone -> ESP32)
+  // ---------------------------------------------------------------------------
+
+  bool sendFastKp(double kp) => sendCommand('P${kp.toStringAsFixed(2)}');
+  bool sendFastKi(double ki) => sendCommand('I${ki.toStringAsFixed(2)}');
+  bool sendFastKd(double kd) => sendCommand('D${kd.toStringAsFixed(2)}');
+  bool sendFastMaxSpeed(int speed) => sendCommand('M$speed');
+  bool sendFastBaseSpeed(int speed) => sendCommand('B$speed');
+  bool sendFastThreshold(int threshold) => sendCommand('T$threshold');
+  bool sendToggleRun() => sendCommand('S');
 
   @override
   bool sendThresholdForAllSensors(int threshold) {
@@ -268,16 +300,45 @@ class BleService implements RobotService {
   Future<void> dispose() async {
     await disconnect();
     await FlutterBluePlus.stopScan();
+    await _telemetryController.close();
+    telemetryNotifier.dispose();
   }
 
   // ---------------------------------------------------------------------------
-  // Incoming data handling — identical protocol to BluetoothService
+  // Incoming Data Handling (15-Byte Binary Telemetry or ASCII Stream)
   // ---------------------------------------------------------------------------
 
   void _handleIncomingData(List<int> data) {
-    final chunk = utf8.decode(data, allowMalformed: true);
-    debugPrint('📥 [BLE RECEIVE] "${chunk.trim()}" (${data.length} bytes)');
+    // 1. Binary Packet (15 Bytes)
+    if (data.length == 15) {
+      final telemetry = TelemetryData.fromBinary(data);
+      if (telemetry != null) {
+        telemetryNotifier.value = telemetry;
+        if (!_telemetryController.isClosed) {
+          _telemetryController.add(telemetry);
+        }
 
+        // Compute boolean line detection per sensor
+        final onLine = List<bool>.generate(
+          AppConstants.sensorCount,
+          (i) {
+            final raw = telemetry.sensors[i];
+            // Normalize threshold: 12-bit (0-4095) downscaled to 8-bit (>> 4)
+            final thresh = _sensorThresholds[i] > 255
+                ? (_sensorThresholds[i] >> 4)
+                : _sensorThresholds[i];
+            return raw > thresh;
+          },
+        );
+
+        onTelemetryReceived?.call(telemetry);
+        onSensorDataReceived?.call(telemetry.sensors, onLine);
+        return;
+      }
+    }
+
+    // 2. ASCII String Stream (ACKs, thresholds, status)
+    final chunk = utf8.decode(data, allowMalformed: true);
     _incomingBuffer += chunk;
 
     while (_incomingBuffer.contains('\n')) {
@@ -286,32 +347,27 @@ class BleService implements RobotService {
       _incomingBuffer = _incomingBuffer.substring(idx + 1);
 
       if (line.isNotEmpty) {
-        debugPrint('📨 [BLE RECEIVE] Complete message: "$line"');
         _processLine(line);
       }
     }
   }
 
   void _processLine(String line) {
-    // SENSORS:val0,val1,...,val11
+    // Legacy ASCII SENSORS:val0,val1,...,val11
     if (line.startsWith(AppConstants.respSensors)) {
       final payload = line.substring(AppConstants.respSensors.length);
       final parts = payload.split(',');
 
       if (parts.length == AppConstants.sensorCount) {
         final rawValues = parts.map((v) => int.tryParse(v.trim()) ?? 0).toList();
-        final thresholds = _sensorThresholds.length == AppConstants.sensorCount
-            ? _sensorThresholds
-            : List<int>.filled(AppConstants.sensorCount, AppConstants.defaultThreshold);
         final onLine = List<bool>.generate(
           AppConstants.sensorCount,
-          (i) => rawValues[i] > thresholds[i],
+          (i) {
+            final thresh = _sensorThresholds[i];
+            return rawValues[i] > thresh;
+          },
         );
         onSensorDataReceived?.call(rawValues, onLine);
-      } else {
-        debugPrint(
-          '⚠️ [BLE SENSORS] Expected ${AppConstants.sensorCount} values, got ${parts.length}',
-        );
       }
       return;
     }
@@ -381,16 +437,34 @@ class BleService implements RobotService {
       return;
     }
 
-    // Generic message
+    // Generic messages (e.g., "Robot Started", "Robot Stopped")
     onDataReceived?.call(line);
   }
 
   void _handleDisconnected() {
-    debugPrint('⚠️ [BLE DISCONNECT] Disconnected unexpectedly!');
+    debugPrint('⚠️ [BLE DISCONNECT] Device disconnected.');
+    final disconnectedDev = _device;
     _device = null;
     _rxChar = null;
     _txChar = null;
     _incomingBuffer = '';
     onDisconnected?.call();
+
+    // Auto-reconnect handling if not manually initiated
+    if (!_isManualDisconnect &&
+        autoReconnectEnabled &&
+        disconnectedDev != null &&
+        _reconnectAttempts < maxReconnectAttempts) {
+      _reconnectAttempts++;
+      final delaySec = _reconnectAttempts * 2;
+      debugPrint(
+        '🔄 [BLE RECONNECT] Attempt $_reconnectAttempts/$maxReconnectAttempts in ${delaySec}s …',
+      );
+      Future.delayed(Duration(seconds: delaySec), () {
+        if (_device == null && !_isManualDisconnect) {
+          connect(disconnectedDev);
+        }
+      });
+    }
   }
 }

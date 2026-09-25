@@ -9,6 +9,8 @@ class SensorsCard extends StatelessWidget {
   final bool showAnalog;
   final bool isCalibrationMode;
   final List<int> sensorThresholds;
+  final double? lineError;
+  final bool lineDetected;
   final ValueChanged<bool>? onShowAnalogChanged;
   final ValueChanged<bool>? onCalibrationModeChanged;
   final void Function(int index, int value)? onSensorThresholdPreview;
@@ -23,6 +25,8 @@ class SensorsCard extends StatelessWidget {
     this.showAnalog = false,
     this.isCalibrationMode = false,
     this.sensorThresholds = const [],
+    this.lineError,
+    this.lineDetected = true,
     this.onShowAnalogChanged,
     this.onCalibrationModeChanged,
     this.onSensorThresholdPreview,
@@ -84,6 +88,8 @@ class SensorsCard extends StatelessWidget {
               sensorOnLine: sensorOnLine,
               sensorRawValues: sensorRawValues,
               showAnalog: showAnalog,
+              lineError: lineError,
+              lineDetected: lineDetected,
             ),
             AnimatedSize(
               duration: const Duration(milliseconds: 220),

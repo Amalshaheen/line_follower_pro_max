@@ -1,11 +1,61 @@
+import 'dart:typed_data';
+
+/// Represents a 15-byte compact binary telemetry packet from the robot over BLE.
+///
+/// Layout:
+/// - Bytes 0–11: 12 individual 8-bit analog IR values (0–255).
+/// - Bytes 12–13: Signed 16-bit integer representing `error * 100` (little-endian).
+/// - Byte 14: Status flags (Bit 0 = motors running, Bit 1 = line detected).
+class TelemetryData {
+  final List<int> sensors; // 12 values: 0-255
+  final double error; // Line error (e.g., -5.5 to +5.5)
+  final bool motorsRunning;
+  final bool lineDetected;
+  final int rawFlags;
+  final DateTime timestamp;
+
+  const TelemetryData({
+    required this.sensors,
+    required this.error,
+    required this.motorsRunning,
+    required this.lineDetected,
+    this.rawFlags = 0,
+    required this.timestamp,
+  });
+
+  /// Parse a 15-byte raw binary packet from the TX characteristic.
+  static TelemetryData? fromBinary(List<int> bytes) {
+    if (bytes.length < 15) return null;
+    final sensors = bytes.sublist(0, 12);
+    final byteData = ByteData.sublistView(Uint8List.fromList(bytes));
+    final errorX100 = byteData.getInt16(12, Endian.little);
+    final flags = bytes[14];
+    final motorsRunning = (flags & (1 << 0)) != 0;
+    final lineLost = (flags & (1 << 1)) != 0 || errorX100 >= 9900;
+    final lineDetected = !lineLost;
+
+    return TelemetryData(
+      sensors: List<int>.unmodifiable(sensors),
+      error: errorX100 / 100.0,
+      motorsRunning: motorsRunning,
+      lineDetected: lineDetected,
+      rawFlags: flags,
+      timestamp: DateTime.now(),
+    );
+  }
+}
+
 /// Represents the runtime state of the line follower robot.
 class RobotState {
   final bool isRunning;
   final bool trackFinished;
   final int runtime; // Runtime in milliseconds
-  final List<int> sensorRawValues; // Raw analog values from sensors (0-4095)
+  final List<int> sensorRawValues; // Raw analog values from sensors (0-255 or 0-4095)
   final List<bool> sensorOnLine; // Processed boolean values
+  final double lineError; // Current line tracking error (-5.5 to +5.5)
+  final bool lineDetected;
   final String latestMessage;
+  final TelemetryData? latestTelemetry;
 
   const RobotState({
     this.isRunning = false,
@@ -13,7 +63,10 @@ class RobotState {
     this.runtime = 0,
     this.sensorRawValues = const [],
     this.sensorOnLine = const [],
+    this.lineError = 0.0,
+    this.lineDetected = true,
     this.latestMessage = '--',
+    this.latestTelemetry,
   });
 
   /// Format runtime as mm:ss.ms
@@ -32,7 +85,10 @@ class RobotState {
     int? runtime,
     List<int>? sensorRawValues,
     List<bool>? sensorOnLine,
+    double? lineError,
+    bool? lineDetected,
     String? latestMessage,
+    TelemetryData? latestTelemetry,
   }) {
     return RobotState(
       isRunning: isRunning ?? this.isRunning,
@@ -40,7 +96,10 @@ class RobotState {
       runtime: runtime ?? this.runtime,
       sensorRawValues: sensorRawValues ?? this.sensorRawValues,
       sensorOnLine: sensorOnLine ?? this.sensorOnLine,
+      lineError: lineError ?? this.lineError,
+      lineDetected: lineDetected ?? this.lineDetected,
       latestMessage: latestMessage ?? this.latestMessage,
+      latestTelemetry: latestTelemetry ?? this.latestTelemetry,
     );
   }
 }

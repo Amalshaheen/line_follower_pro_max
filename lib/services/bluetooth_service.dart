@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../constants/app_constants.dart';
+import '../models/robot_state.dart';
 import 'robot_service.dart';
 
 export 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart'
@@ -32,6 +33,8 @@ class BluetoothService implements RobotService {
   @override
   final Function(List<int> rawValues, List<bool> onLine)? onSensorDataReceived;
   @override
+  final Function(TelemetryData telemetry)? onTelemetryReceived;
+  @override
   final Function(int runtimeMs)? onTrackFinished;
   @override
   final Function(String command, String value)? onAckReceived;
@@ -46,6 +49,7 @@ class BluetoothService implements RobotService {
   BluetoothService({
     this.onDataReceived,
     this.onSensorDataReceived,
+    this.onTelemetryReceived,
     this.onTrackFinished,
     this.onAckReceived,
     this.onThresholdsReceived,
