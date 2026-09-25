@@ -176,11 +176,20 @@ class _DashboardPageState extends State<DashboardPage> {
     });
   }
 
+  List<int> _scaleTo12Bit(List<int> values) {
+    if (values.isEmpty) return values;
+    final maxVal = values.fold<int>(0, (m, v) => v > m ? v : m);
+    if (maxVal <= 255) {
+      return values.map((v) => (v * 4095 ~/ 255).clamp(0, 4095)).toList();
+    }
+    return values.map((v) => v.clamp(0, 4095)).toList();
+  }
+
   void _onSensorDataReceived(List<int> rawValues, List<bool> onLine) {
     if (!mounted || onLine.length != AppConstants.sensorCount) return;
     setState(() {
       sensorOnLine = onLine;
-      sensorRawValues = rawValues;
+      sensorRawValues = _scaleTo12Bit(rawValues);
     });
   }
 
@@ -190,7 +199,7 @@ class _DashboardPageState extends State<DashboardPage> {
       lineError = telemetry.error;
       lineDetected = telemetry.lineDetected;
       isRunning = telemetry.motorsRunning;
-      sensorRawValues = telemetry.sensors;
+      sensorRawValues = _scaleTo12Bit(telemetry.sensors);
     });
   }
 
@@ -211,11 +220,20 @@ class _DashboardPageState extends State<DashboardPage> {
 
   void _onAckReceived(String command, String value) {
     if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
     if (command == 'BASE') {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
-          duration: const Duration(milliseconds: 900),
+          duration: const Duration(milliseconds: 1200),
           content: Text('Base speed confirmed: $value'),
+        ),
+      );
+    } else if (command == 'MAX') {
+      messenger.showSnackBar(
+        SnackBar(
+          duration: const Duration(milliseconds: 1200),
+          content: Text('Max speed confirmed: $value'),
         ),
       );
     }
@@ -872,19 +890,29 @@ class _DashboardPageState extends State<DashboardPage> {
                 maxSpeedController: maxSpeedController,
                 baseSpeedController: baseSpeedController,
                 onMaxSpeedSend: () {
-                  final maxSpeed = maxSpeedController.text;
+                  final maxSpeed = maxSpeedController.text.trim();
                   _activeService?.sendCommand(
                     '${AppConstants.cmdMaxSpeedPrefix}$maxSpeed',
                   );
+                  final messenger = ScaffoldMessenger.of(context);
+                  messenger.clearSnackBars();
+                  messenger.showSnackBar(
+                    SnackBar(
+                      duration: const Duration(milliseconds: 1200),
+                      content: Text('Max speed set to $maxSpeed'),
+                    ),
+                  );
                 },
                 onBaseSpeedSend: () {
-                  final baseSpeed = baseSpeedController.text;
+                  final baseSpeed = baseSpeedController.text.trim();
                   _activeService?.sendCommand(
                     '${AppConstants.cmdBaseSpeedPrefix}$baseSpeed',
                   );
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  final messenger = ScaffoldMessenger.of(context);
+                  messenger.clearSnackBars();
+                  messenger.showSnackBar(
                     SnackBar(
-                      duration: const Duration(milliseconds: 900),
+                      duration: const Duration(milliseconds: 1200),
                       content: Text('Base speed set to $baseSpeed'),
                     ),
                   );

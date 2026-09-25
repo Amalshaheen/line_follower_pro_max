@@ -22,6 +22,7 @@ class SpeedFieldRow extends StatelessWidget {
           child: TextField(
             controller: controller,
             keyboardType: TextInputType.number,
+            onSubmitted: (_) => onSend(),
             decoration: const InputDecoration(
               isDense: true,
               border: OutlineInputBorder(),

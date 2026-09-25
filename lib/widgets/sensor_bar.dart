@@ -64,9 +64,16 @@ class SensorBar extends StatelessWidget {
     return Container(
       height: 28,
       decoration: BoxDecoration(
-        color: Colors.grey.shade900,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.black26),
+        border: Border.all(color: Colors.grey.shade300),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
       padding: const EdgeInsets.all(2),
       child: Row(
@@ -79,12 +86,15 @@ class SensorBar extends StatelessWidget {
                 duration: const Duration(milliseconds: 80),
                 margin: const EdgeInsets.symmetric(horizontal: 1),
                 decoration: BoxDecoration(
-                  color: isOn ? Colors.tealAccent.shade400 : Colors.grey.shade800,
+                  color: isOn ? Colors.teal.shade500 : Colors.grey.shade200,
                   borderRadius: BorderRadius.circular(3),
+                  border: isOn
+                      ? null
+                      : Border.all(color: Colors.grey.shade300, width: 0.5),
                   boxShadow: isOn
                       ? [
                           BoxShadow(
-                            color: Colors.tealAccent.withValues(alpha: 0.4),
+                            color: Colors.teal.withValues(alpha: 0.4),
                             blurRadius: 4,
                             spreadRadius: 1,
                           )
@@ -100,25 +110,25 @@ class SensorBar extends StatelessWidget {
   }
 
   Widget _buildAnalogVisualizer(BuildContext context, int count) {
-    // Detect if values are 8-bit (max <= 255) or legacy 12-bit (max > 255)
+    // Detect if values are 8-bit (max <= 255) to scale up to 12-bit (0-4095)
     final maxValInSet = sensorRawValues.fold<int>(
       0,
       (max, val) => val > max ? val : max,
     );
-    final maxScale = maxValInSet > 255 ? 4095.0 : 255.0;
+    const maxScale = 4095.0;
 
     return Container(
-      height: 105,
+      height: 108,
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.grey.shade900,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade800),
-        boxShadow: const [
+        border: Border.all(color: Colors.grey.shade300),
+        boxShadow: [
           BoxShadow(
-            color: Colors.black26,
-            blurRadius: 4,
-            offset: Offset(0, 2),
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -129,11 +139,17 @@ class SensorBar extends StatelessWidget {
               index < sensorRawValues.length ? sensorRawValues[index] : 0;
           final isOn =
               index < sensorOnLine.length ? sensorOnLine[index] : false;
-          final fillFraction = (rawValue / maxScale).clamp(0.04, 1.0);
+
+          // Scale up to 0–4095 range
+          final displayValue = (rawValue <= 255 && maxValInSet <= 255)
+              ? (rawValue * 4095 ~/ 255).clamp(0, 4095)
+              : rawValue.clamp(0, 4095);
+
+          final fillFraction = (displayValue / maxScale).clamp(0.04, 1.0);
 
           return Expanded(
             child: Tooltip(
-              message: 'Sensor ${index + 1}: $rawValue / ${maxScale.toInt()}\n'
+              message: 'Sensor ${index + 1}: $displayValue / 4095\n'
                   'State: ${isOn ? "LINE (Active)" : "Off-line"}',
               child: InkWell(
                 onTap: () => onSensorTap?.call(index),
@@ -143,54 +159,66 @@ class SensorBar extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      // Sensor reading readout
-                      Text(
-                        '$rawValue',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                          color: isOn
-                              ? Colors.tealAccent.shade400
-                              : Colors.grey.shade400,
+                      // Sensor reading readout (0-4095)
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          '$displayValue',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: isOn
+                                ? Colors.teal.shade800
+                                : Colors.grey.shade700,
+                          ),
+                          maxLines: 1,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 3),
 
-                      // Vertical analog level bar
+                      // Vertical analog level bar with background track
                       Expanded(
-                        child: Align(
-                          alignment: Alignment.bottomCenter,
-                          child: FractionallySizedBox(
-                            heightFactor: fillFraction,
-                            widthFactor: 0.9,
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 60),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(3),
-                                gradient: LinearGradient(
-                                  begin: Alignment.bottomCenter,
-                                  end: Alignment.topCenter,
-                                  colors: isOn
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(3),
+                            border: Border.all(
+                              color: Colors.grey.shade200,
+                              width: 0.5,
+                            ),
+                          ),
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: FractionallySizedBox(
+                              heightFactor: fillFraction,
+                              widthFactor: 1.0,
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 60),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(2.5),
+                                  gradient: LinearGradient(
+                                    begin: Alignment.bottomCenter,
+                                    end: Alignment.topCenter,
+                                    colors: isOn
+                                        ? [
+                                            Colors.teal.shade700,
+                                            Colors.teal.shade400,
+                                          ]
+                                        : [
+                                            Colors.grey.shade400,
+                                            Colors.grey.shade300,
+                                          ],
+                                  ),
+                                  boxShadow: isOn
                                       ? [
-                                          Colors.teal.shade700,
-                                          Colors.tealAccent.shade400,
+                                          BoxShadow(
+                                            color: Colors.teal.withValues(alpha: 0.35),
+                                            blurRadius: 3,
+                                            spreadRadius: 0.5,
+                                          )
                                         ]
-                                      : [
-                                          Colors.blueGrey.shade800,
-                                          Colors.blueGrey.shade600,
-                                        ],
+                                      : null,
                                 ),
-                                boxShadow: isOn
-                                    ? [
-                                        BoxShadow(
-                                          color: Colors.tealAccent.withValues(alpha: 0.35),
-                                          blurRadius: 3,
-                                          spreadRadius: 0.5,
-                                        )
-                                      ]
-                                    : null,
                               ),
                             ),
                           ),
@@ -203,8 +231,8 @@ class SensorBar extends StatelessWidget {
                         '${index + 1}',
                         style: TextStyle(
                           fontSize: 8,
-                          color: Colors.grey.shade500,
-                          fontWeight: FontWeight.w500,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
@@ -226,9 +254,16 @@ class SensorBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: Colors.grey.shade300),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 3,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
       child: Column(
         children: [

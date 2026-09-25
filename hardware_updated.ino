@@ -12,6 +12,7 @@ void setMotors(int leftSpeed, int rightSpeed);
 float readLineError();
 void sendTelemetry(float error);
 void handleCommand(String rxValue);
+void sendThresholdsToApp();
 
 // =============================================================================
 // MOTOR PIN DEFINITIONS (ESP32-S3 Mini) - STRICTLY PRESERVED
@@ -30,25 +31,45 @@ const int IR_PINS[12] = {4, 5, 6, 16, 15, 14, 17, 18, 13, 12, 11, 10};
 int sensorAnalogValues[12]; 
 bool isLineDetected[12];    
 uint8_t sensor8BitValues[12]; // Option A downscaled (0–255)
+int sensorThresholds[12];     // Per-sensor 12-bit ADC threshold (0–4095)
 
 // =============================================================================
-// PID & TUNING VARIABLES
+// PID & SPEED & STEERING CONFIGURATION
 // =============================================================================
-float Kp = 70.0;
+float Kp = 50.0;
 float Ki = 0.0;
 float Kd = 0.0;
-int maxSpeed = 100;
+
+// Speed Control Decoupling:
+// - baseSpeed: Cruising forward speed in straight line (0–255)
+// - maxSpeed:  Upper PWM saturation ceiling for outside wheel (0–255)
+// - minSpeed:  Deadband compensation threshold to overcome motor stiction (0–255)
+int baseSpeed = 100;
+int maxSpeed  = 255;
+int minSpeed  = 0;     // Set to e.g. 25-40 if motors stall at low PWM
+
+// Threshold Configuration (12-bit ADC: 0-4095)
+// Black line ~3000-4095, White surface ~0-800. Default 2000 is mid-scale.
 float thresholdT = 2000.0; 
 
+// Steering Polarity Inversion:
+// - FALSE (Default): Sensor 0 = Left, Sensor 11 = Right. Line on right -> Robot steers right.
+// - TRUE: Inverted physical mounting / sensor wiring. Flip via "INV=1" over BLE.
+bool invertSteering = false;
+
+// PID Runtime State
 float previousError = 0.0;
 float integral = 0.0;
 bool motorsEnabled = false;
 
 // =============================================================================
-// TELEMETRY TIMER (20–25 Hz -> 40–50 ms)
+// TIMERS (Telemetry ~22 Hz, Diagnostics 10 Hz)
 // =============================================================================
 unsigned long lastTelemetryTime = 0;
 const int TELEMETRY_INTERVAL = 45; // ~22 Hz non-blocking
+
+unsigned long lastDebugTime = 0;
+const int DEBUG_INTERVAL = 100;    // 10 Hz diagnostic logging
 
 // =============================================================================
 // PACKED BINARY TELEMETRY PACKET (EXACTLY 15 BYTES)
@@ -79,12 +100,12 @@ bool deviceConnected = false;
 class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) override { 
     deviceConnected = true; 
-    Serial.println(F(">>> BLE Phone Connected!")); 
+    Serial.println(F(">>> BLE Connected!")); 
   }
   
   void onDisconnect(BLEServer* pServer) override { 
     deviceConnected = false; 
-    Serial.println(F(">>> BLE Phone Disconnected!")); 
+    Serial.println(F(">>> BLE Disconnected!")); 
     stopMotors(); 
     motorsEnabled = false;
     pServer->getAdvertising()->start();
@@ -115,7 +136,7 @@ void handleCommand(String rxValue) {
   Serial.println(rxValue);
 
   // 1. Single-character command: Toggle Run/Stop
-  if (rxValue == "S" || rxValue == "s") {
+  if (rxValue.equalsIgnoreCase("S")) {
     motorsEnabled = !motorsEnabled;
     if (!motorsEnabled) {
       stopMotors();
@@ -126,52 +147,140 @@ void handleCommand(String rxValue) {
     return;
   }
 
-  // 2. Single-letter prefix commands: P, I, D, M, T
-  char firstChar = toupper(rxValue.charAt(0));
-  String param = rxValue.substring(1);
-  param.trim();
-
-  // Full-name / legacy prefixes support
-  if (rxValue.startsWith("KP=")) {
-    Kp = rxValue.substring(3).toFloat();
-    Serial.printf("Kp set to: %.2f\n", Kp);
-    return;
-  } else if (rxValue.startsWith("KI=")) {
-    Ki = rxValue.substring(3).toFloat();
-    Serial.printf("Ki set to: %.2f\n", Ki);
-    return;
-  } else if (rxValue.startsWith("KD=")) {
-    Kd = rxValue.substring(3).toFloat();
-    Serial.printf("Kd set to: %.2f\n", Kd);
-    return;
-  } else if (rxValue.startsWith("MAX=")) {
-    maxSpeed = constrain(rxValue.substring(4).toInt(), 0, 255);
-    Serial.printf("MaxSpeed set to: %d\n", maxSpeed);
-    return;
-  } else if (rxValue.startsWith("BASE=")) {
-    maxSpeed = constrain(rxValue.substring(5).toInt(), 0, 255);
-    Serial.printf("Base/Max Speed set to: %d\n", maxSpeed);
-    return;
-  } else if (rxValue.startsWith("THRALL=")) {
-    float val = rxValue.substring(7).toFloat();
-    if (val <= 255.0f) val *= 16.0f; // Scale 8-bit to 12-bit if needed
-    thresholdT = val;
-    Serial.printf("Threshold set to: %.1f\n", thresholdT);
-    return;
-  } else if (rxValue == "RUN=1" || rxValue == "ROBOT,START") {
+  // 2. Start / Stop explicit commands
+  if (rxValue == "RUN=1" || rxValue == "ROBOT,START") {
     motorsEnabled = true;
-    Serial.println(F("Motors Started via RUN=1"));
+    Serial.println(F("Motors Started via RUN=1 / ROBOT,START"));
     return;
-  } else if (rxValue == "RUN=0" || rxValue == "ROBOT,STOP") {
+  } 
+  if (rxValue == "RUN=0" || rxValue == "ROBOT,STOP") {
     motorsEnabled = false;
     stopMotors();
     integral = 0;
     previousError = 0;
-    Serial.println(F("Motors Stopped via RUN=0"));
+    Serial.println(F("Motors Stopped via RUN=0 / ROBOT,STOP"));
     return;
   }
 
-  // Concise single-letter parsing
+  // 3. Status queries (safe from prefix collision)
+  if (rxValue == "THRESH?") {
+    sendThresholdsToApp();
+    return;
+  }
+  if (rxValue == "TIME?") {
+    Serial.printf("TIME=%lu\n", millis());
+    return;
+  }
+
+  // 4. Steering Polarity Inversion
+  if (rxValue.startsWith("INV=")) {
+    invertSteering = (rxValue.substring(4).toInt() != 0);
+    Serial.printf("Invert Steering set to: %d\n", invertSteering);
+    return;
+  }
+  if (rxValue.equalsIgnoreCase("INV") || rxValue.equalsIgnoreCase("INVERT")) {
+    invertSteering = !invertSteering;
+    Serial.printf("Invert Steering toggled to: %d\n", invertSteering);
+    return;
+  }
+
+  // 5. Compound commands: S,B,<val> and S,M,<val>
+  if (rxValue.startsWith("S,B,") || rxValue.startsWith("S,b,")) {
+    baseSpeed = constrain(rxValue.substring(4).toInt(), 0, 255);
+    Serial.printf("BaseSpeed set to: %d\n", baseSpeed);
+    return;
+  }
+  if (rxValue.startsWith("S,M,") || rxValue.startsWith("S,m,")) {
+    maxSpeed = constrain(rxValue.substring(4).toInt(), 0, 255);
+    Serial.printf("MaxSpeed set to: %d\n", maxSpeed);
+    return;
+  }
+
+  // 6. Compound PID: P,<kp>,<ki>
+  if (rxValue.startsWith("P,") || rxValue.startsWith("p,")) {
+    int commaIndex = rxValue.indexOf(',', 2);
+    if (commaIndex != -1) {
+      Kp = rxValue.substring(2, commaIndex).toFloat();
+      Ki = rxValue.substring(commaIndex + 1).toFloat();
+      Serial.printf("Compound PID set: Kp=%.2f, Ki=%.2f\n", Kp, Ki);
+    } else {
+      Kp = rxValue.substring(2).toFloat();
+      Serial.printf("Kp set to: %.2f\n", Kp);
+    }
+    return;
+  }
+
+  // 7. Explicit prefix commands (KP=, KI=, KD=, BASE=, MAX=, MIN=, THRALL=, THR=)
+  if (rxValue.startsWith("KP=")) {
+    Kp = rxValue.substring(3).toFloat();
+    Serial.printf("Kp set to: %.2f\n", Kp);
+    return;
+  } 
+  if (rxValue.startsWith("KI=")) {
+    Ki = rxValue.substring(3).toFloat();
+    Serial.printf("Ki set to: %.2f\n", Ki);
+    return;
+  } 
+  if (rxValue.startsWith("KD=")) {
+    Kd = rxValue.substring(3).toFloat();
+    Serial.printf("Kd set to: %.2f\n", Kd);
+    return;
+  } 
+  if (rxValue.startsWith("BASE=")) {
+    baseSpeed = constrain(rxValue.substring(5).toInt(), 0, 255);
+    Serial.printf("BaseSpeed set to: %d\n", baseSpeed);
+    return;
+  } 
+  if (rxValue.startsWith("MAX=")) {
+    maxSpeed = constrain(rxValue.substring(4).toInt(), 0, 255);
+    Serial.printf("MaxSpeed set to: %d\n", maxSpeed);
+    return;
+  } 
+  if (rxValue.startsWith("MIN=")) {
+    minSpeed = constrain(rxValue.substring(4).toInt(), 0, 255);
+    Serial.printf("MinSpeed (deadband) set to: %d\n", minSpeed);
+    return;
+  } 
+  if (rxValue.startsWith("THRALL=")) {
+    float val = rxValue.substring(7).toFloat();
+    if (val <= 255.0f && val > 0.0f) val *= 16.0f; // Scale 8-bit to 12-bit if needed
+    if (val > 0.0f) {
+      thresholdT = constrain(val, 100.0f, 4000.0f);
+      for (int i = 0; i < 12; i++) {
+        sensorThresholds[i] = (int)thresholdT;
+      }
+      Serial.printf("All Thresholds set to: %.1f\n", thresholdT);
+      sendThresholdsToApp();
+    }
+    return;
+  }
+  if (rxValue.startsWith("THR=")) {
+    int comma = rxValue.indexOf(',');
+    if (comma != -1) {
+      int idx = rxValue.substring(4, comma).toInt();
+      float val = rxValue.substring(comma + 1).toFloat();
+      if (val <= 255.0f && val > 0.0f) val *= 16.0f;
+      if (idx >= 0 && idx < 12 && val > 0.0f) {
+        sensorThresholds[idx] = (int)constrain(val, 100.0f, 4000.0f);
+        Serial.printf("Sensor %d threshold set to: %d\n", idx, sensorThresholds[idx]);
+      }
+    }
+    return;
+  }
+
+  // 8. Concise single-letter prefix commands (P, I, D, B, M, T)
+  // Ensure the parameter begins with a numeric character (+, -, or digit)
+  char firstChar = toupper(rxValue.charAt(0));
+  String param = rxValue.substring(1);
+  param.trim();
+
+  if (param.length() == 0) return;
+  char firstParamChar = param.charAt(0);
+  if (!isDigit(firstParamChar) && firstParamChar != '-' && firstParamChar != '+') {
+    Serial.printf("Ignored non-numeric command: %s\n", rxValue.c_str());
+    return;
+  }
+
   float val = param.toFloat();
   switch (firstChar) {
     case 'P':
@@ -186,19 +295,51 @@ void handleCommand(String rxValue) {
       Kd = val;
       Serial.printf("Kd: %.2f\n", Kd);
       break;
+    case 'B':
+      baseSpeed = constrain((int)val, 0, 255);
+      Serial.printf("BaseSpeed: %d\n", baseSpeed);
+      break;
     case 'M':
       maxSpeed = constrain((int)val, 0, 255);
       Serial.printf("MaxSpeed: %d\n", maxSpeed);
       break;
     case 'T':
-      // Support 8-bit (0–255) or 12-bit (0–4095) thresholds
-      if (val <= 255.0f && val > 0.0f) {
-        thresholdT = val * 16.0f;
-      } else {
-        thresholdT = val;
+      // Support 8-bit (0–255) or 12-bit (0–4095) thresholds; ignore non-positive numbers
+      if (val > 0.0f) {
+        if (val <= 255.0f) {
+          thresholdT = val * 16.0f;
+        } else {
+          thresholdT = val;
+        }
+        thresholdT = constrain(thresholdT, 100.0f, 4000.0f);
+        for (int i = 0; i < 12; i++) {
+          sensorThresholds[i] = (int)thresholdT;
+        }
+        Serial.printf("ThresholdT set to: %.1f\n", thresholdT);
+        sendThresholdsToApp();
       }
-      Serial.printf("ThresholdT: %.1f\n", thresholdT);
       break;
+    default:
+      Serial.printf("Unknown command letter '%c'\n", firstChar);
+      break;
+  }
+}
+
+// =============================================================================
+// SEND THRESHOLDS OVER BLE / SERIAL
+// =============================================================================
+void sendThresholdsToApp() {
+  String payload = "THRESHOLDS:";
+  for (int i = 0; i < 12; i++) {
+    payload += String(sensorThresholds[i]);
+    if (i < 11) payload += ",";
+  }
+  payload += "\n";
+  Serial.print(payload);
+
+  if (deviceConnected && pTxCharacteristic != nullptr) {
+    pTxCharacteristic->setValue((uint8_t*)payload.c_str(), payload.length());
+    pTxCharacteristic->notify();
   }
 }
 
@@ -224,6 +365,7 @@ void setup() {
   // Configure 12 IR Sensor Pins
   for (int i = 0; i < 12; i++) {
     pinMode(IR_PINS[i], INPUT);
+    sensorThresholds[i] = (int)thresholdT;
   }
 
   // Fast 12-bit ADC Configuration on ESP32-S3
@@ -258,11 +400,13 @@ void setup() {
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->setScanResponse(true);
-  pAdvertising->setMinPreferred(0x06); // Fast iPhone/Android connection interval
+  pAdvertising->setMinPreferred(0x06); // Fast iOS/Android connection interval
   pAdvertising->setMinPreferred(0x12);
   BLEDevice::startAdvertising();
 
   Serial.println(F("BLE Advertising as: LFR_V5_Tuner"));
+  Serial.printf("Initial Config: BaseSpeed=%d | MaxSpeed=%d | Kp=%.1f | Thresh=%.0f | Invert=%d\n",
+                baseSpeed, maxSpeed, Kp, thresholdT, invertSteering);
 }
 
 // =============================================================================
@@ -271,7 +415,7 @@ void setup() {
 void loop() {
   float error = readLineError(); 
   
-  // Stream rate-limited binary telemetry to companion app
+  // Stream rate-limited binary telemetry to companion app (~22 Hz)
   if (deviceConnected) {
     sendTelemetry(error);
   }
@@ -279,23 +423,45 @@ void loop() {
   // Motor PID control
   if (motorsEnabled) {
     if (error == 999.0f) {
+      // Line lost: stop motors safely and reset PID integral
       stopMotors();
       integral = 0;      
       previousError = 0; 
+
+      // Periodic diagnostic logging while line lost
+      unsigned long now = millis();
+      if (now - lastDebugTime >= DEBUG_INTERVAL) {
+        lastDebugTime = now;
+        Serial.println(F("[RUN] LINE LOST (error=999.0) -> Motors Stopped"));
+      }
     } 
     else {
+      // PID calculation
       float P = error * Kp;
       integral += error;
+      // Integral anti-windup clamp
+      integral = constrain(integral, -100.0f, 100.0f);
       float I = integral * Ki;
       float D = (error - previousError) * Kd;
       
       float correction = P + I + D;
       previousError = error;
 
-      int leftMotorSpeed = maxSpeed + (int)correction;
-      int rightMotorSpeed = maxSpeed - (int)correction;
+      // Dynamic differential speed calculation:
+      // - baseSpeed provides forward momentum
+      // - correction steers robot by speeding up outer wheel and slowing down inner wheel
+      int leftMotorSpeed  = baseSpeed + (int)correction;
+      int rightMotorSpeed = baseSpeed - (int)correction;
 
       setMotors(leftMotorSpeed, rightMotorSpeed);
+
+      // Temporary diagnostic logging (100ms interval)
+      unsigned long now = millis();
+      if (now - lastDebugTime >= DEBUG_INTERVAL) {
+        lastDebugTime = now;
+        Serial.printf("[RUN] Err:%5.2f | Corr:%6.1f | L:%4d | R:%4d | Base:%3d | Max:%3d | Inv:%d\n",
+                      error, correction, leftMotorSpeed, rightMotorSpeed, baseSpeed, maxSpeed, invertSteering);
+      }
     }
   } else {
     stopMotors();
@@ -315,7 +481,8 @@ float readLineError() {
     // Option A downscaling: 12-bit (0–4095) >> 4 -> 8-bit (0–255)
     sensor8BitValues[i] = (uint8_t)(raw >> 4);
     
-    if (raw > thresholdT) { 
+    // Check against individual sensor threshold
+    if (raw > sensorThresholds[i]) { 
       isLineDetected[i] = true;
       sum += (i - 5.5f); 
       activeSensors++;
@@ -328,7 +495,15 @@ float readLineError() {
     return 999.0f; // Line lost flag
   }
   
-  return sum / activeSensors;
+  float error = sum / (float)activeSensors;
+
+  // Steering polarity check:
+  // If sensor array orientation or motor wiring is reversed, invert error sign
+  if (invertSteering) {
+    error = -error;
+  }
+  
+  return error;
 }
 
 // =============================================================================
@@ -376,15 +551,27 @@ void sendTelemetry(float error) {
 }
 
 // =============================================================================
-// MOTOR CONTROLS - STRICTLY PRESERVED
+// MOTOR CONTROLS (BTS7960 Dual H-Bridge Drivers)
 // =============================================================================
 void setMotors(int leftSpeed, int rightSpeed) {
-  leftSpeed = constrain(leftSpeed, -maxSpeed, maxSpeed);
-  rightSpeed = constrain(rightSpeed, -maxSpeed, maxSpeed);
+  // Constrain speeds to dynamic allowable range [-maxSpeed, maxSpeed] within standard 8-bit PWM bounds [-255, 255]
+  int speedCeiling = constrain(maxSpeed, 0, 255);
+  leftSpeed = constrain(leftSpeed, -speedCeiling, speedCeiling);
+  rightSpeed = constrain(rightSpeed, -speedCeiling, speedCeiling);
+
+  // Deadband compensation: ensure motor delivers enough torque to overcome static friction
+  if (minSpeed > 0) {
+    if (leftSpeed > 0 && leftSpeed < minSpeed) leftSpeed = minSpeed;
+    else if (leftSpeed < 0 && leftSpeed > -minSpeed) leftSpeed = -minSpeed;
+
+    if (rightSpeed > 0 && rightSpeed < minSpeed) rightSpeed = minSpeed;
+    else if (rightSpeed < 0 && rightSpeed > -minSpeed) rightSpeed = -minSpeed;
+  }
 
   digitalWrite(LEFT_EN, HIGH); 
   digitalWrite(RIGHT_EN, HIGH);
 
+  // Left Motor Direction & PWM
   if (leftSpeed > 0) {
     analogWrite(LEFT_RPWM, leftSpeed); 
     analogWrite(LEFT_LPWM, 0);
@@ -396,6 +583,7 @@ void setMotors(int leftSpeed, int rightSpeed) {
     analogWrite(LEFT_LPWM, 0); 
   }
 
+  // Right Motor Direction & PWM
   if (rightSpeed > 0) {
     analogWrite(RIGHT_RPWM, rightSpeed); 
     analogWrite(RIGHT_LPWM, 0);

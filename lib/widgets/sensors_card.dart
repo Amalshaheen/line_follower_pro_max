@@ -293,7 +293,10 @@ class _SensorThresholdSliderState extends State<_SensorThresholdSlider> {
 
   @override
   Widget build(BuildContext context) {
-    final isOnLine = widget.rawValue > widget.threshold;
+    final rawVal = widget.rawValue <= 255
+        ? (widget.rawValue * 4095 ~/ 255).clamp(0, 4095)
+        : widget.rawValue.clamp(0, 4095);
+    final isOnLine = rawVal > widget.threshold;
 
     return Container(
       width: 64,
@@ -358,7 +361,9 @@ class _SensorThresholdSliderState extends State<_SensorThresholdSlider> {
             SizedBox(
               height: 12,
               width: double.infinity,
-              child: ColoredBox(color: isOnLine ? Colors.black : Colors.grey),
+              child: ColoredBox(
+                color: isOnLine ? Colors.teal : Colors.grey.shade300,
+              ),
             ),
           ],
         ),
