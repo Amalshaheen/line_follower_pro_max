@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/settings_service.dart';
-import '../services/robot_service.dart';
+import 'onboarding_page.dart';
 
 class SettingsPage extends StatefulWidget {
   final AppSettings initialSettings;
@@ -23,7 +23,6 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _baseSpeedController;
   late final TextEditingController _thresholdController;
   late final TextEditingController _deviceNameController;
-  late ConnectionMode _connectionMode;
 
   @override
   void initState() {
@@ -49,7 +48,6 @@ class _SettingsPageState extends State<SettingsPage> {
     _deviceNameController = TextEditingController(
       text: widget.initialSettings.deviceName,
     );
-    _connectionMode = widget.initialSettings.connectionMode;
   }
 
   @override
@@ -96,7 +94,6 @@ class _SettingsPageState extends State<SettingsPage> {
       maxSpeed: int.parse(_maxSpeedController.text.trim()),
       baseSpeed: int.parse(_baseSpeedController.text.trim()),
       threshold: int.parse(_thresholdController.text.trim()),
-      connectionMode: _connectionMode,
       deviceName: _deviceNameController.text.trim().isEmpty
           ? widget.initialSettings.deviceName
           : _deviceNameController.text.trim(),
@@ -105,6 +102,31 @@ class _SettingsPageState extends State<SettingsPage> {
     await _settingsService.saveSettings(settings);
     if (mounted) {
       Navigator.of(context).pop(true);
+    }
+  }
+
+  Future<void> _openOnboardingWizard() async {
+    final updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const OnboardingPage(isEditing: true),
+      ),
+    );
+    if (updated == true && mounted) {
+      final settings = await _settingsService.getSettings();
+      if (!mounted) return;
+      setState(() {
+        _kpController.text = settings.kp.toStringAsFixed(2);
+        _kiController.text = settings.ki.toStringAsFixed(2);
+        _kdController.text = settings.kd.toStringAsFixed(2);
+        _maxSpeedController.text = settings.maxSpeed.toString();
+        _baseSpeedController.text = settings.baseSpeed.toString();
+        _thresholdController.text = settings.threshold.toString();
+        _deviceNameController.text = settings.deviceName;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Settings updated from Setup Wizard')),
+      );
     }
   }
 
@@ -234,24 +256,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   border: OutlineInputBorder(),
                 ),
               ),
-              const SizedBox(height: 10),
-              SegmentedButton<ConnectionMode>(
-                segments: const [
-                  ButtonSegment(
-                    value: ConnectionMode.classic,
-                    label: Text('Classic BT'),
-                    icon: Icon(Icons.bluetooth),
-                  ),
-                  ButtonSegment(
-                    value: ConnectionMode.ble,
-                    label: Text('BLE'),
-                    icon: Icon(Icons.bluetooth_searching),
-                  ),
-                ],
-                selected: {_connectionMode},
-                onSelectionChanged: (s) =>
-                    setState(() => _connectionMode = s.first),
-              ),
               const SizedBox(height: 20),
               FilledButton.icon(
                 onPressed: _save,
@@ -263,6 +267,12 @@ class _SettingsPageState extends State<SettingsPage> {
                 onPressed: _resetToFactoryDefaults,
                 icon: const Icon(Icons.restore_rounded),
                 label: const Text('Reset to Factory Defaults'),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _openOnboardingWizard,
+                icon: const Icon(Icons.auto_fix_high_rounded),
+                label: const Text('Rerun Setup Wizard'),
               ),
             ],
           ),

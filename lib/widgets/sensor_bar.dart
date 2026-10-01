@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 class SensorBar extends StatelessWidget {
   final List<bool> sensorOnLine;
   final List<int> sensorRawValues;
+  final List<bool>? sensorEnabled;
   final bool showAnalog;
   final double? lineError; // Line error (-5.5 to +5.5)
   final bool lineDetected;
@@ -14,6 +15,7 @@ class SensorBar extends StatelessWidget {
     super.key,
     required this.sensorOnLine,
     this.sensorRawValues = const [],
+    this.sensorEnabled,
     this.showAnalog = true,
     this.lineError,
     this.lineDetected = true,
@@ -78,27 +80,52 @@ class SensorBar extends StatelessWidget {
       padding: const EdgeInsets.all(2),
       child: Row(
         children: List.generate(count, (index) {
-          final isOn = index < sensorOnLine.length ? sensorOnLine[index] : false;
+          final isEnabled = sensorEnabled == null ||
+              index >= sensorEnabled!.length ||
+              sensorEnabled![index];
+          final isOn = isEnabled &&
+              (index < sensorOnLine.length ? sensorOnLine[index] : false);
           return Expanded(
-            child: GestureDetector(
-              onTap: () => onSensorTap?.call(index),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 80),
-                margin: const EdgeInsets.symmetric(horizontal: 1),
-                decoration: BoxDecoration(
-                  color: isOn ? Colors.teal.shade500 : Colors.grey.shade200,
-                  borderRadius: BorderRadius.circular(3),
-                  border: isOn
-                      ? null
-                      : Border.all(color: Colors.grey.shade300, width: 0.5),
-                  boxShadow: isOn
-                      ? [
-                          BoxShadow(
-                            color: Colors.teal.withValues(alpha: 0.4),
-                            blurRadius: 4,
-                            spreadRadius: 1,
-                          )
-                        ]
+            child: Tooltip(
+              message: isEnabled
+                  ? 'Sensor ${index + 1}: ${isOn ? "LINE" : "Off-line"}'
+                  : 'Sensor ${index + 1}: OFF (Disabled)',
+              child: GestureDetector(
+                onTap: () => onSensorTap?.call(index),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 80),
+                  margin: const EdgeInsets.symmetric(horizontal: 1),
+                  decoration: BoxDecoration(
+                    color: !isEnabled
+                        ? Colors.grey.shade300.withValues(alpha: 0.6)
+                        : (isOn ? Colors.teal.shade500 : Colors.grey.shade200),
+                    borderRadius: BorderRadius.circular(3),
+                    border: isOn
+                        ? null
+                        : Border.all(
+                            color: !isEnabled
+                                ? Colors.grey.shade400
+                                : Colors.grey.shade300,
+                            width: 0.5,
+                          ),
+                    boxShadow: isOn
+                        ? [
+                            BoxShadow(
+                              color: Colors.teal.withValues(alpha: 0.4),
+                              blurRadius: 4,
+                              spreadRadius: 1,
+                            )
+                          ]
+                        : null,
+                  ),
+                  child: !isEnabled
+                      ? Center(
+                          child: Icon(
+                            Icons.power_settings_new_rounded,
+                            size: 11,
+                            color: Colors.grey.shade500,
+                          ),
+                        )
                       : null,
                 ),
               ),
@@ -135,46 +162,57 @@ class SensorBar extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: List.generate(count, (index) {
+          final isEnabled = sensorEnabled == null ||
+              index >= sensorEnabled!.length ||
+              sensorEnabled![index];
           final rawValue =
               index < sensorRawValues.length ? sensorRawValues[index] : 0;
-          final isOn =
-              index < sensorOnLine.length ? sensorOnLine[index] : false;
+          final isOn = isEnabled &&
+              (index < sensorOnLine.length ? sensorOnLine[index] : false);
 
           // Scale up to 0–4095 range
           final displayValue = (rawValue <= 255 && maxValInSet <= 255)
               ? (rawValue * 4095 ~/ 255).clamp(0, 4095)
               : rawValue.clamp(0, 4095);
 
-          final fillFraction = (displayValue / maxScale).clamp(0.04, 1.0);
+          final fillFraction = isEnabled
+              ? (displayValue / maxScale).clamp(0.04, 1.0)
+              : 0.0;
 
           return Expanded(
             child: Tooltip(
-              message: 'Sensor ${index + 1}: $displayValue / 4095\n'
-                  'State: ${isOn ? "LINE (Active)" : "Off-line"}',
+              message: isEnabled
+                  ? 'Sensor ${index + 1}: $displayValue / 4095\n'
+                      'State: ${isOn ? "LINE (Active)" : "Off-line"}'
+                  : 'Sensor ${index + 1}: OFF (Disabled - Tap to toggle)',
               child: InkWell(
                 onTap: () => onSensorTap?.call(index),
                 borderRadius: BorderRadius.circular(4),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 1.5),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      // Sensor reading readout (0-4095)
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          '$displayValue',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            color: isOn
-                                ? Colors.teal.shade800
-                                : Colors.grey.shade700,
+                child: Opacity(
+                  opacity: isEnabled ? 1.0 : 0.45,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        // Sensor reading readout (0-4095) or OFF
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            isEnabled ? '$displayValue' : 'OFF',
+                            style: TextStyle(
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.w700,
+                              color: !isEnabled
+                                  ? Colors.red.shade400
+                                  : (isOn
+                                      ? Colors.teal.shade800
+                                      : Colors.grey.shade700),
+                            ),
+                            maxLines: 1,
                           ),
-                          maxLines: 1,
                         ),
-                      ),
-                      const SizedBox(height: 3),
+                        const SizedBox(height: 3),
 
                       // Vertical analog level bar with background track
                       Expanded(
@@ -240,7 +278,7 @@ class SensorBar extends StatelessWidget {
                 ),
               ),
             ),
-          );
+          ));
         }),
       ),
     );

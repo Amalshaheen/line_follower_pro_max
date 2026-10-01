@@ -2,14 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/robot_state.dart';
 
-/// Enumerates the two supported connection transport types.
-enum ConnectionMode { classic, ble }
-
-/// Abstract base class that both [BluetoothService] (classic SPP) and
-/// [BleService] (BLE / Nordic UART Service) implement.
+/// Abstract base class for the robot communication service ([BleService]).
 ///
-/// All application logic should depend on this interface so that switching
-/// between transport types requires no changes to the dashboard or widgets.
+/// Application logic depends on this interface for telemetry, command handling,
+/// and sensor state management.
 abstract class RobotService {
   // ---------------------------------------------------------------------------
   // Callbacks
@@ -71,4 +67,13 @@ abstract class RobotService {
 
   /// Convenience: set the threshold for a single sensor by [index].
   bool sendThresholdForSensor({required int index, required int threshold});
+
+  /// Enable or disable an individual sensor by [index].
+  bool sendSensorEnable({required int index, required bool enabled});
+
+  /// Enable or disable sensors via a bitmask (bit i = 1 means sensor i enabled).
+  bool sendSensorMask(int mask);
+
+  /// Synchronize the local list of enabled sensors.
+  void setSensorEnabledList(List<bool> enabled);
 }

@@ -30,6 +30,10 @@ class BleService implements RobotService {
     AppConstants.sensorCount,
     AppConstants.defaultThreshold,
   );
+  List<bool> _sensorEnabled = List<bool>.filled(
+    AppConstants.sensorCount,
+    true,
+  );
 
   // Auto-reconnect configuration
   bool autoReconnectEnabled = true;
@@ -297,6 +301,34 @@ class BleService implements RobotService {
   }
 
   @override
+  bool sendSensorEnable({required int index, required bool enabled}) {
+    if (index < 0 || index >= AppConstants.sensorCount) {
+      debugPrint('❌ [SENSOR_ENABLE] Invalid sensor index: $index');
+      return false;
+    }
+    _sensorEnabled[index] = enabled;
+    return sendCommand(
+      '${AppConstants.cmdSensorSinglePrefix}$index,${enabled ? 1 : 0}',
+    );
+  }
+
+  @override
+  bool sendSensorMask(int mask) {
+    for (int i = 0; i < AppConstants.sensorCount; i++) {
+      _sensorEnabled[i] = ((mask >> i) & 1) != 0;
+    }
+    return sendCommand('${AppConstants.cmdSensorMaskPrefix}$mask');
+  }
+
+  @override
+  void setSensorEnabledList(List<bool> enabled) {
+    _sensorEnabled = List<bool>.generate(
+      AppConstants.sensorCount,
+      (i) => i < enabled.length ? enabled[i] : true,
+    );
+  }
+
+  @override
   Future<void> dispose() async {
     await disconnect();
     await FlutterBluePlus.stopScan();
@@ -322,6 +354,7 @@ class BleService implements RobotService {
         final onLine = List<bool>.generate(
           AppConstants.sensorCount,
           (i) {
+            if (!_sensorEnabled[i]) return false;
             final raw = telemetry.sensors[i];
             // Normalize threshold: 12-bit (0-4095) downscaled to 8-bit (>> 4)
             final thresh = _sensorThresholds[i] > 255
@@ -363,11 +396,24 @@ class BleService implements RobotService {
         final onLine = List<bool>.generate(
           AppConstants.sensorCount,
           (i) {
+            if (!_sensorEnabled[i]) return false;
             final thresh = _sensorThresholds[i];
             return rawValues[i] > thresh;
           },
         );
         onSensorDataReceived?.call(rawValues, onLine);
+      }
+      return;
+    }
+
+    // MASK:maskValue
+    if (line.startsWith(AppConstants.respSensorMask)) {
+      final payload = line.substring(AppConstants.respSensorMask.length).trim();
+      final mask = int.tryParse(payload);
+      if (mask != null) {
+        for (int i = 0; i < AppConstants.sensorCount; i++) {
+          _sensorEnabled[i] = ((mask >> i) & 1) != 0;
+        }
       }
       return;
     }

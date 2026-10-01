@@ -13,6 +13,7 @@ float readLineError();
 void sendTelemetry(float error);
 void handleCommand(String rxValue);
 void sendThresholdsToApp();
+void sendSensorMaskToApp();
 
 // =============================================================================
 // MOTOR PIN DEFINITIONS (ESP32-S3 Mini) - STRICTLY PRESERVED
@@ -32,6 +33,7 @@ int sensorAnalogValues[12];
 bool isLineDetected[12];    
 uint8_t sensor8BitValues[12]; // Option A downscaled (0–255)
 int sensorThresholds[12];     // Per-sensor 12-bit ADC threshold (0–4095)
+uint16_t sensorMask = 0x0FFF; // 12-bit active sensor mask (bit i = 1 means enabled)
 
 // =============================================================================
 // PID & SPEED & STEERING CONFIGURATION
@@ -268,7 +270,36 @@ void handleCommand(String rxValue) {
     return;
   }
 
-  // 8. Concise single-letter prefix commands (P, I, D, B, M, T)
+  // 8. Sensor Enable / Mask commands
+  if (rxValue == "MASK?" || rxValue == "SENS?") {
+    sendSensorMaskToApp();
+    return;
+  }
+  if (rxValue.startsWith("MASK=")) {
+    sensorMask = (uint16_t)rxValue.substring(5).toInt();
+    Serial.printf("Sensor Mask set to: 0x%03X (%d)\n", sensorMask, sensorMask);
+    sendSensorMaskToApp();
+    return;
+  }
+  if (rxValue.startsWith("SENS=")) {
+    int comma = rxValue.indexOf(',');
+    if (comma != -1) {
+      int idx = rxValue.substring(5, comma).toInt();
+      int en = rxValue.substring(comma + 1).toInt();
+      if (idx >= 0 && idx < 12) {
+        if (en != 0) {
+          sensorMask |= (1 << idx);
+        } else {
+          sensorMask &= ~(1 << idx);
+        }
+        Serial.printf("Sensor %d %s (Mask: 0x%03X)\n", idx, en != 0 ? "ENABLED" : "DISABLED", sensorMask);
+        sendSensorMaskToApp();
+      }
+    }
+    return;
+  }
+
+  // 9. Concise single-letter prefix commands (P, I, D, B, M, T)
   // Ensure the parameter begins with a numeric character (+, -, or digit)
   char firstChar = toupper(rxValue.charAt(0));
   String param = rxValue.substring(1);
@@ -335,6 +366,16 @@ void sendThresholdsToApp() {
     if (i < 11) payload += ",";
   }
   payload += "\n";
+  Serial.print(payload);
+
+  if (deviceConnected && pTxCharacteristic != nullptr) {
+    pTxCharacteristic->setValue((uint8_t*)payload.c_str(), payload.length());
+    pTxCharacteristic->notify();
+  }
+}
+
+void sendSensorMaskToApp() {
+  String payload = "MASK:" + String(sensorMask) + "\n";
   Serial.print(payload);
 
   if (deviceConnected && pTxCharacteristic != nullptr) {
@@ -481,8 +522,9 @@ float readLineError() {
     // Option A downscaling: 12-bit (0–4095) >> 4 -> 8-bit (0–255)
     sensor8BitValues[i] = (uint8_t)(raw >> 4);
     
-    // Check against individual sensor threshold
-    if (raw > sensorThresholds[i]) { 
+    bool isEnabled = (sensorMask & (1 << i)) != 0;
+    // Check against individual sensor threshold only if enabled
+    if (isEnabled && raw > sensorThresholds[i]) { 
       isLineDetected[i] = true;
       sum += (i - 5.5f); 
       activeSensors++;

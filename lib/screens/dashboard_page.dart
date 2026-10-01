@@ -56,6 +56,10 @@ class _DashboardPageState extends State<DashboardPage> {
     AppConstants.sensorCount,
     AppConstants.defaultThreshold,
   );
+  late List<bool> sensorEnabled = List<bool>.filled(
+    AppConstants.sensorCount,
+    true,
+  );
 
   // History / settings
   final HistoryService _historyService = HistoryService();
@@ -65,22 +69,16 @@ class _DashboardPageState extends State<DashboardPage> {
   RunCaptureType? _historyFilter;
 
   // ── Connection state ───────────────────────────────────────────────────────
-  /// The active service (either classic BT or BLE).
-  RobotService? _activeService;
+  /// The active BLE service.
+  BleService? _bleService;
+  RobotService? get _activeService => _bleService;
 
-  ConnectionMode _connectionMode = ConnectionMode.classic;
   String _deviceName = AppConstants.defaultDeviceName;
   bool isConnected = false;
   bool isConnecting = false;
   String btStatus = 'Disconnected';
 
-  // Classic BT
-  BluetoothService? _classicService;
-  List<BluetoothDevice> bondedDevices = [];
-  BluetoothDevice? selectedClassicDevice;
-
   // BLE
-  BleService? _bleService;
   List<ScanResult> scanResults = [];
   ScanResult? selectedScanResult;
   bool isScanning = false;
@@ -101,11 +99,11 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _initFromSettings() async {
     final settings = await _settingsService.getSettings();
     final savedSensorThresholds = await _settingsService.getSensorThresholds();
+    final savedSensorEnabled = await _settingsService.getSensorEnabled();
     if (!mounted) return;
 
     setState(() {
       _defaultSettings = settings;
-      _connectionMode = settings.connectionMode;
       _deviceName = settings.deviceName;
 
       kp = settings.kp;
@@ -115,6 +113,8 @@ class _DashboardPageState extends State<DashboardPage> {
       baseSpeedController.text = settings.baseSpeed.toString();
       sensorThresholds = savedSensorThresholds ??
           List<int>.filled(AppConstants.sensorCount, settings.threshold);
+      sensorEnabled = savedSensorEnabled ??
+          List<bool>.filled(AppConstants.sensorCount, true);
       allThresholdController.text = settings.threshold.toString();
     });
 
@@ -122,17 +122,6 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _initServices() async {
-    // Build both services so we can switch without reinitialising permissions.
-    _classicService = BluetoothService(
-      onDataReceived: _onDataReceived,
-      onSensorDataReceived: _onSensorDataReceived,
-      onTelemetryReceived: _onTelemetryReceived,
-      onTrackFinished: _onTrackFinished,
-      onAckReceived: _onAckReceived,
-      onThresholdsReceived: _onThresholdsReceived,
-      onDisconnected: _onDisconnected,
-    );
-
     _bleService = BleService(
       onDataReceived: _onDataReceived,
       onSensorDataReceived: _onSensorDataReceived,
@@ -143,18 +132,8 @@ class _DashboardPageState extends State<DashboardPage> {
       onDisconnected: _onDisconnected,
     );
 
-    _activeService = _connectionMode == ConnectionMode.ble
-        ? _bleService
-        : _classicService;
-
-    // Request permissions for BOTH transports upfront so the user isn't
-    // interrupted later when they switch modes.
-    await _classicService!.initializePermissions();
+    _bleService!.setSensorEnabledList(sensorEnabled);
     await _bleService!.initializePermissions();
-
-    if (_connectionMode == ConnectionMode.classic) {
-      await _loadBondedDevices();
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -260,77 +239,14 @@ class _DashboardPageState extends State<DashboardPage> {
   // Mode switching
   // ---------------------------------------------------------------------------
 
-  void _handleModeChanged(ConnectionMode mode) {
-    if (mode == _connectionMode) return;
-    setState(() {
-      _connectionMode = mode;
-      _activeService = mode == ConnectionMode.ble ? _bleService : _classicService;
-      scanResults = [];
-      selectedScanResult = null;
-    });
-    // Persist the new mode choice
-    _settingsService.saveSettings(
-      _defaultSettings.copyWith(connectionMode: mode, deviceName: _deviceName),
-    );
-    if (mode == ConnectionMode.classic) {
-      _loadBondedDevices();
-    }
-    // BLE permissions are already requested at init — no extra call needed
-  }
-
   void _handleDeviceNameChanged(String name) {
     if (name.isEmpty) return;
     setState(() => _deviceName = name);
     _settingsService.saveSettings(
       _defaultSettings.copyWith(
-        connectionMode: _connectionMode,
         deviceName: name,
       ),
     );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Classic BT helpers
-  // ---------------------------------------------------------------------------
-
-  Future<List<BluetoothDevice>> _loadBondedDevices() async {
-    final devices = await _classicService!.getBondedDevices();
-    if (mounted) {
-      setState(() => bondedDevices = devices);
-    }
-    return devices;
-  }
-
-  Future<bool> _connectClassic() async {
-    if (selectedClassicDevice == null) return false;
-    setState(() => isConnecting = true);
-
-    final success = await _classicService!.connect(selectedClassicDevice!);
-
-    if (mounted) {
-      setState(() {
-        isConnecting = false;
-        if (success) {
-          isConnected = true;
-          btStatus =
-              'Connected to ${selectedClassicDevice!.name ?? selectedClassicDevice!.address}';
-          _postConnect();
-        } else {
-          btStatus = 'Failed to connect';
-        }
-      });
-      if (success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Connected successfully'),
-            duration: Duration(milliseconds: 800),
-          ),
-        );
-        await Future.delayed(const Duration(milliseconds: 500));
-        if (mounted) Navigator.of(context).pop();
-      }
-    }
-    return success;
   }
 
   // ---------------------------------------------------------------------------
@@ -415,19 +331,11 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<bool> _connectToDevice() async {
-    if (_connectionMode == ConnectionMode.ble) {
-      return await _connectBle();
-    } else {
-      return await _connectClassic();
-    }
+    return await _connectBle();
   }
 
   Future<void> _disconnectDevice() async {
-    if (_connectionMode == ConnectionMode.ble) {
-      await _bleService?.disconnect();
-    } else {
-      await _classicService?.disconnect();
-    }
+    await _bleService?.disconnect();
     if (mounted) {
       setState(() {
         isConnected = false;
@@ -446,31 +354,20 @@ class _DashboardPageState extends State<DashboardPage> {
       context,
       MaterialPageRoute(
         builder: (context) => BluetoothSettingsPage(
-          bondedDevices: bondedDevices,
-          selectedClassicDevice: selectedClassicDevice,
           scanResults: scanResults,
           selectedScanResult: selectedScanResult,
           isScanning: isScanning,
           bleAdapterStateStream: _bleService?.adapterStateStream,
-          connectionMode: _connectionMode,
           isConnected: isConnected,
           isConnecting: isConnecting,
           btStatus: btStatus,
           deviceName: _deviceName,
-          onModeChanged: (mode) {
-            _handleModeChanged(mode);
-            setState(() {});
-          },
           onDeviceNameChanged: _handleDeviceNameChanged,
-          onClassicDeviceSelected: (device) {
-            setState(() => selectedClassicDevice = device);
-          },
           onBleDeviceSelected: (result) {
             setState(() => selectedScanResult = result);
           },
           onConnect: _connectToDevice,
           onDisconnect: _disconnectDevice,
-          onRefreshClassic: _loadBondedDevices,
           onStartBleScan: _startBleScan,
         ),
       ),
@@ -509,19 +406,10 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _loadDefaultSettings() async {
     final loaded = await _settingsService.getSettings();
     if (!mounted) return;
-    final modeChanged = loaded.connectionMode != _connectionMode;
     setState(() {
       _defaultSettings = loaded;
-      // Sync connection mode and device name so UI reflects saved settings
-      _connectionMode = loaded.connectionMode;
       _deviceName = loaded.deviceName;
-      _activeService = _connectionMode == ConnectionMode.ble
-          ? _bleService
-          : _classicService;
     });
-    if (modeChanged && _connectionMode == ConnectionMode.classic) {
-      _loadBondedDevices();
-    }
   }
 
   Future<void> _loadHistory() async {
@@ -680,7 +568,40 @@ class _DashboardPageState extends State<DashboardPage> {
     setState(() => isCalibrationMode = enabled);
     if (enabled) {
       _activeService?.sendCommand(AppConstants.cmdQueryThresholds);
+      _activeService?.sendCommand(AppConstants.cmdQuerySensorMask);
     }
+  }
+
+  void _handleSensorEnableChanged(int index, bool enabled) {
+    if (index < 0 || index >= sensorEnabled.length) return;
+    setState(() {
+      sensorEnabled[index] = enabled;
+    });
+    _activeService?.sendSensorEnable(index: index, enabled: enabled);
+    _settingsService.saveSensorEnabled(sensorEnabled);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(milliseconds: 700),
+        content: Text(
+          'Sensor S$index ${enabled ? "enabled (ON)" : "disabled (OFF)"}',
+        ),
+      ),
+    );
+  }
+
+  void _handleAllSensorsEnableChanged(bool enabled) {
+    setState(() {
+      sensorEnabled = List<bool>.filled(AppConstants.sensorCount, enabled);
+    });
+    final mask = enabled ? ((1 << AppConstants.sensorCount) - 1) : 0;
+    _activeService?.sendSensorMask(mask);
+    _settingsService.saveSensorEnabled(sensorEnabled);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(milliseconds: 700),
+        content: Text(enabled ? 'All sensors enabled' : 'All sensors disabled'),
+      ),
+    );
   }
 
   void _handleSensorThresholdPreview(int index, int value) {
@@ -710,11 +631,12 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Future<void> _handleSaveCalibration() async {
     await _settingsService.saveSensorThresholds(sensorThresholds);
+    await _settingsService.saveSensorEnabled(sensorEnabled);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         duration: Duration(milliseconds: 900),
-        content: Text('Calibration values saved'),
+        content: Text('Calibration & sensor states saved'),
       ),
     );
   }
@@ -778,7 +700,6 @@ class _DashboardPageState extends State<DashboardPage> {
     allThresholdController.dispose();
     _scanSubscription?.cancel();
     _isScanningSubscription?.cancel();
-    _classicService?.dispose();
     _bleService?.dispose();
     super.dispose();
   }
@@ -809,15 +730,9 @@ class _DashboardPageState extends State<DashboardPage> {
           Stack(
             children: [
               IconButton(
-                icon: Icon(
-                  _connectionMode == ConnectionMode.ble
-                      ? Icons.bluetooth_searching
-                      : Icons.bluetooth,
-                ),
+                icon: const Icon(Icons.bluetooth_searching),
                 onPressed: _navigateToBluetoothSettings,
-                tooltip: _connectionMode == ConnectionMode.ble
-                    ? 'BLE Connection'
-                    : 'Bluetooth Connection',
+                tooltip: 'BLE Connection',
               ),
               if (isConnected)
                 Positioned(
@@ -849,6 +764,7 @@ class _DashboardPageState extends State<DashboardPage> {
               SensorsCard(
                 sensorOnLine: sensorOnLine,
                 sensorRawValues: sensorRawValues,
+                sensorEnabled: sensorEnabled,
                 showAnalog: showAnalogSensors,
                 isCalibrationMode: isCalibrationMode,
                 sensorThresholds: sensorThresholds,
@@ -861,6 +777,8 @@ class _DashboardPageState extends State<DashboardPage> {
                 onSensorThresholdPreview: _handleSensorThresholdPreview,
                 onSensorThresholdCommit: _handleSensorThresholdCommit,
                 onAllSensorThresholdCommit: _handleAllSensorThresholdCommit,
+                onSensorEnableChanged: _handleSensorEnableChanged,
+                onAllSensorsEnableChanged: _handleAllSensorsEnableChanged,
                 onSaveCalibration: _handleSaveCalibration,
               ),
               const SizedBox(height: 12),

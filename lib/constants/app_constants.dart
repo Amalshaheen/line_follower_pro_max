@@ -4,7 +4,7 @@ class AppConstants {
   // Device defaults
   // ---------------------------------------------------------------------------
 
-  /// Default device name shown in settings (classic BT & BLE).
+  /// Default device name shown in settings (BLE).
   /// Users can change this to match their robot's advertised name.
   static const String defaultDeviceName = 'LFR_V5_Tuner';
 
@@ -50,7 +50,7 @@ class AppConstants {
 
   // ---------------------------------------------------------------------------
   // Hardware protocol commands (app → bot)
-  // Both classic BT and BLE hardware use the same protocol.
+  // Communication over BLE Nordic UART Service.
   // ---------------------------------------------------------------------------
   static const String cmdRunStart = 'RUN=1';
   static const String cmdRunStop = 'RUN=0';
@@ -67,16 +67,20 @@ class AppConstants {
   static const String cmdThresholdSinglePrefix = 'THR=';
   static const String cmdAutoStopPrefix = 'AUTOSTOP=';
   static const String cmdLineLostRecoveryPrefix = 'LINELOST=';
+  static const String cmdSensorSinglePrefix = 'SENS=';
+  static const String cmdSensorMaskPrefix = 'MASK=';
+  static const String cmdQuerySensorMask = 'MASK?';
 
   // ---------------------------------------------------------------------------
   // Response prefixes from hardware (bot → app)
-  // Both classic BT and BLE hardware use the same protocol.
+  // Communication over BLE Nordic UART Service.
   // ---------------------------------------------------------------------------
   static const String respSensors = 'SENSORS:';
   static const String respAck = 'ACK:';
   static const String respTrackFinished = 'TRACK_FINISHED';
   static const String respTimePrefix = 'TIME=';
   static const String respThresholds = 'THRESHOLDS:';
+  static const String respSensorMask = 'MASK:';
 
   // ---------------------------------------------------------------------------
   // UI strings

@@ -3,64 +3,43 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart'
     show ScanResult, BluetoothAdapterState, FlutterBluePlus;
-import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart'
-    show BluetoothDevice;
 
 import '../constants/app_constants.dart';
-import '../services/robot_service.dart';
 
-/// Unified connection settings screen.
+/// BLE connection settings screen.
 ///
-/// Shows a mode toggle (Classic BT / BLE) and the appropriate device list for
-/// the selected mode.  Calls back to the dashboard for all state changes.
+/// Shows Bluetooth Low Energy (BLE) scanning, device filtering, and connection management.
 class BluetoothSettingsPage extends StatefulWidget {
-  // ── Classic BT ─────────────────────────────────────────────────────────────
-  final List<BluetoothDevice> bondedDevices;
-  final BluetoothDevice? selectedClassicDevice;
-
-  // ── BLE ─────────────────────────────────────────────────────────────────────
   final List<ScanResult> scanResults;
   final ScanResult? selectedScanResult;
   final bool isScanning;
   final Stream<BluetoothAdapterState>? bleAdapterStateStream;
 
-  // ── Shared ──────────────────────────────────────────────────────────────────
-  final ConnectionMode connectionMode;
   final bool isConnected;
   final bool isConnecting;
   final String btStatus;
-  final String deviceName; // configurable device name
+  final String deviceName;
 
-  // ── Callbacks ───────────────────────────────────────────────────────────────
-  final ValueChanged<ConnectionMode> onModeChanged;
   final ValueChanged<String> onDeviceNameChanged;
-  final ValueChanged<BluetoothDevice> onClassicDeviceSelected;
   final ValueChanged<ScanResult> onBleDeviceSelected;
   final Future<bool> Function() onConnect;
   final VoidCallback onDisconnect;
-  final Future<List<BluetoothDevice>> Function() onRefreshClassic;
   final VoidCallback onStartBleScan;
 
   const BluetoothSettingsPage({
     super.key,
-    required this.bondedDevices,
-    required this.selectedClassicDevice,
     required this.scanResults,
     required this.selectedScanResult,
     required this.isScanning,
     required this.bleAdapterStateStream,
-    required this.connectionMode,
     required this.isConnected,
     required this.isConnecting,
     required this.btStatus,
     required this.deviceName,
-    required this.onModeChanged,
     required this.onDeviceNameChanged,
-    required this.onClassicDeviceSelected,
     required this.onBleDeviceSelected,
     required this.onConnect,
     required this.onDisconnect,
-    required this.onRefreshClassic,
     required this.onStartBleScan,
   });
 
@@ -72,9 +51,7 @@ class _BluetoothSettingsPageState extends State<BluetoothSettingsPage> {
   late final TextEditingController _deviceNameController;
   late bool _isConnected;
   late bool _isConnecting;
-  late List<BluetoothDevice> _bondedDevices;
   late String _btStatus;
-  bool _isRefreshingClassic = false;
 
   @override
   void initState() {
@@ -82,7 +59,6 @@ class _BluetoothSettingsPageState extends State<BluetoothSettingsPage> {
     _deviceNameController = TextEditingController(text: widget.deviceName);
     _isConnected = widget.isConnected;
     _isConnecting = widget.isConnecting;
-    _bondedDevices = widget.bondedDevices;
     _btStatus = widget.btStatus;
   }
 
@@ -92,6 +68,15 @@ class _BluetoothSettingsPageState extends State<BluetoothSettingsPage> {
     if (oldWidget.deviceName != widget.deviceName) {
       _deviceNameController.text = widget.deviceName;
     }
+    if (oldWidget.isConnected != widget.isConnected) {
+      _isConnected = widget.isConnected;
+    }
+    if (oldWidget.isConnecting != widget.isConnecting) {
+      _isConnecting = widget.isConnecting;
+    }
+    if (oldWidget.btStatus != widget.btStatus) {
+      _btStatus = widget.btStatus;
+    }
   }
 
   @override
@@ -99,8 +84,6 @@ class _BluetoothSettingsPageState extends State<BluetoothSettingsPage> {
     _deviceNameController.dispose();
     super.dispose();
   }
-
-  bool get _isBle => widget.connectionMode == ConnectionMode.ble;
 
   @override
   Widget build(BuildContext context) {
@@ -112,66 +95,15 @@ class _BluetoothSettingsPageState extends State<BluetoothSettingsPage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _buildModeToggleCard(context),
-            const SizedBox(height: 12),
             _buildDeviceNameCard(context),
             const SizedBox(height: 12),
             _buildConnectionStatusCard(context),
             const SizedBox(height: 12),
-            _isBle
-                ? _buildBleDeviceListCard(context)
-                : _buildClassicDeviceCard(context),
+            _buildBleDeviceListCard(context),
             if (widget.isConnecting) ...[
               const SizedBox(height: 12),
               _buildConnectingIndicator(),
             ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Mode toggle
-  // ---------------------------------------------------------------------------
-
-  Widget _buildModeToggleCard(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Connection Type',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Classic BT requires a paired/bonded device.\nBLE scans nearby and connects without pairing.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<ConnectionMode>(
-              segments: const [
-                ButtonSegment(
-                  value: ConnectionMode.classic,
-                  label: Text('Classic BT'),
-                  icon: Icon(Icons.bluetooth),
-                ),
-                ButtonSegment(
-                  value: ConnectionMode.ble,
-                  label: Text('BLE'),
-                  icon: Icon(Icons.bluetooth_searching),
-                ),
-              ],
-              selected: {widget.connectionMode},
-              onSelectionChanged: _isConnected
-                  ? null
-                  : (Set<ConnectionMode> s) => widget.onModeChanged(s.first),
-            ),
           ],
         ),
       ),
@@ -197,9 +129,7 @@ class _BluetoothSettingsPageState extends State<BluetoothSettingsPage> {
             ),
             const SizedBox(height: 4),
             Text(
-              _isBle
-                  ? 'Used to filter BLE scan results.'
-                  : 'For reference — select device from the list below.',
+              'Used to filter BLE scan results.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
@@ -320,85 +250,6 @@ class _BluetoothSettingsPageState extends State<BluetoothSettingsPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // Classic BT device list
-  // ---------------------------------------------------------------------------
-
-  Widget _buildClassicDeviceCard(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Paired Devices',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: widget.selectedClassicDevice?.address,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Select Device',
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
-                ),
-              ),
-              items: _bondedDevices
-                  .map(
-                    (device) => DropdownMenuItem<String>(
-                      value: device.address,
-                      child: Text(
-                        device.name ?? device.address,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  )
-                  .toList(),
-              onChanged: _isConnected
-                  ? null
-                  : (address) {
-                      if (address == null) return;
-                      final device = _bondedDevices.firstWhere(
-                        (d) => d.address == address,
-                      );
-                      widget.onClassicDeviceSelected(device);
-                    },
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _isConnected || _isRefreshingClassic
-                  ? null
-                  : () async {
-                      setState(() => _isRefreshingClassic = true);
-                      final devices = await widget.onRefreshClassic();
-                      if (mounted) {
-                        setState(() {
-                          _bondedDevices = devices;
-                          _isRefreshingClassic = false;
-                        });
-                      }
-                    },
-              icon: _isRefreshingClassic
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh_rounded),
-              label: const Text(AppConstants.refreshButtonLabel),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
   // BLE scan results list
   // ---------------------------------------------------------------------------
 
@@ -437,9 +288,10 @@ class _BluetoothSettingsPageState extends State<BluetoothSettingsPage> {
                       children: [
                         Text(
                           'BLE Devices',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
                         ),
                         const Spacer(),
                         if (isScanning)
@@ -450,7 +302,8 @@ class _BluetoothSettingsPageState extends State<BluetoothSettingsPage> {
                           )
                         else
                           OutlinedButton.icon(
-                            onPressed: _isConnected ? null : widget.onStartBleScan,
+                            onPressed:
+                                _isConnected ? null : widget.onStartBleScan,
                             icon: const Icon(Icons.search_rounded),
                             label: const Text(AppConstants.scanButtonLabel),
                           ),
@@ -490,7 +343,9 @@ class _BluetoothSettingsPageState extends State<BluetoothSettingsPage> {
                           return ListTile(
                             leading: Icon(
                               Icons.bluetooth_rounded,
-                              color: isMatch ? Theme.of(context).colorScheme.primary : null,
+                              color: isMatch
+                                  ? Theme.of(context).colorScheme.primary
+                                  : null,
                             ),
                             title: Text(
                               name,
