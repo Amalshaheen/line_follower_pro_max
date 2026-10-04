@@ -2,14 +2,18 @@ import 'package:flutter/material.dart';
 import 'speed_field_row.dart';
 import '../constants/app_constants.dart';
 
-/// Card widget for speed control settings.
+/// Card widget for speed and motor polarity settings.
 class SpeedCard extends StatelessWidget {
   final TextEditingController maxSpeedController;
   final TextEditingController baseSpeedController;
+  final TextEditingController? minSpeedController;
   final TextEditingController? thresholdAllController;
   final String? thresholdInfoText;
+  final bool? invertSteering;
+  final ValueChanged<bool>? onInvertSteeringChanged;
   final VoidCallback onMaxSpeedSend;
   final VoidCallback onBaseSpeedSend;
+  final VoidCallback? onMinSpeedSend;
   final VoidCallback? onThresholdAllSend;
   final VoidCallback? onResetDefaults;
 
@@ -17,10 +21,14 @@ class SpeedCard extends StatelessWidget {
     super.key,
     required this.maxSpeedController,
     required this.baseSpeedController,
+    this.minSpeedController,
     this.thresholdAllController,
     this.thresholdInfoText,
+    this.invertSteering,
+    this.onInvertSteeringChanged,
     required this.onMaxSpeedSend,
     required this.onBaseSpeedSend,
+    this.onMinSpeedSend,
     this.onThresholdAllSend,
     this.onResetDefaults,
   });
@@ -51,6 +59,55 @@ class SpeedCard extends StatelessWidget {
               controller: baseSpeedController,
               onSend: onBaseSpeedSend,
             ),
+            if (minSpeedController != null && onMinSpeedSend != null) ...[
+              const SizedBox(height: 8),
+              SpeedFieldRow(
+                label: AppConstants.minSpeedLabel,
+                controller: minSpeedController!,
+                onSend: onMinSpeedSend!,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Deadband compensation to overcome BTS7960 motor stiction (0-255 PWM).',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11),
+              ),
+            ],
+            if (invertSteering != null && onInvertSteeringChanged != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.swap_horiz_rounded, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            AppConstants.invertSteeringLabel,
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                          ),
+                          Text(
+                            invertSteering! ? 'Inverted (Reverse steering)' : 'Normal polarity',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: invertSteering!,
+                      onChanged: onInvertSteeringChanged,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (thresholdAllController != null &&
                 onThresholdAllSend != null) ...[
               const SizedBox(height: 8),
@@ -74,11 +131,7 @@ class SpeedCard extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: onResetDefaults,
                   icon: const Icon(Icons.refresh_rounded),
-                  label: Text(
-                    thresholdAllController != null
-                        ? 'Reset Speed/Threshold'
-                        : 'Reset Speed',
-                  ),
+                  label: const Text('Reset Speed Defaults'),
                 ),
               ),
             ],

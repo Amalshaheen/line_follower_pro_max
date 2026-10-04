@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
+import '../constants/app_constants.dart';
 
 /// A modern, interactive 12-channel sensor visualizer displaying real-time
-/// 8-bit normalized analog reflectance (0–255) and line tracking error.
+/// 8-bit normalized analog reflectance (0–255) and metric line tracking error (mm).
 class SensorBar extends StatelessWidget {
   final List<bool> sensorOnLine;
   final List<int> sensorRawValues;
   final List<bool>? sensorEnabled;
   final bool showAnalog;
-  final double? lineError; // Line error (-5.5 to +5.5)
+  final double? lineError; // Line error in millimeters (-52.52 to +52.52 mm)
   final bool lineDetected;
   final void Function(int index)? onSensorTap;
 
@@ -85,11 +86,16 @@ class SensorBar extends StatelessWidget {
               sensorEnabled![index];
           final isOn = isEnabled &&
               (index < sensorOnLine.length ? sensorOnLine[index] : false);
+          final xMm = index < AppConstants.sensorXCoordinatesMm.length
+              ? AppConstants.sensorXCoordinatesMm[index]
+              : 0.0;
+          final xMmStr = '${xMm > 0 ? "+" : ""}${xMm.toStringAsFixed(1)}mm';
+
           return Expanded(
             child: Tooltip(
               message: isEnabled
-                  ? 'Sensor ${index + 1}: ${isOn ? "LINE" : "Off-line"}'
-                  : 'Sensor ${index + 1}: OFF (Disabled)',
+                  ? 'Sensor ${index + 1} ($xMmStr): ${isOn ? "LINE" : "Off-line"}'
+                  : 'Sensor ${index + 1} ($xMmStr): OFF (Disabled)',
               child: GestureDetector(
                 onTap: () => onSensorTap?.call(index),
                 child: AnimatedContainer(
@@ -170,6 +176,11 @@ class SensorBar extends StatelessWidget {
           final isOn = isEnabled &&
               (index < sensorOnLine.length ? sensorOnLine[index] : false);
 
+          final xMm = index < AppConstants.sensorXCoordinatesMm.length
+              ? AppConstants.sensorXCoordinatesMm[index]
+              : 0.0;
+          final xMmStr = '${xMm > 0 ? "+" : ""}${xMm.toStringAsFixed(1)}mm';
+
           // Scale up to 0–4095 range
           final displayValue = (rawValue <= 255 && maxValInSet <= 255)
               ? (rawValue * 4095 ~/ 255).clamp(0, 4095)
@@ -182,9 +193,9 @@ class SensorBar extends StatelessWidget {
           return Expanded(
             child: Tooltip(
               message: isEnabled
-                  ? 'Sensor ${index + 1}: $displayValue / 4095\n'
+                  ? 'Sensor ${index + 1} ($xMmStr): $displayValue / 4095\n'
                       'State: ${isOn ? "LINE (Active)" : "Off-line"}'
-                  : 'Sensor ${index + 1}: OFF (Disabled - Tap to toggle)',
+                  : 'Sensor ${index + 1} ($xMmStr): OFF (Disabled - Tap to toggle)',
               child: InkWell(
                 onTap: () => onSensorTap?.call(index),
                 borderRadius: BorderRadius.circular(4),
@@ -286,11 +297,14 @@ class SensorBar extends StatelessWidget {
 
   Widget _buildErrorIndicator(BuildContext context) {
     final err = lineError ?? 0.0;
-    // Map error from -5.5 .. +5.5 to 0.0 .. 1.0 (0.5 is centered)
-    final clampedNorm = ((err + 5.5) / 11.0).clamp(0.0, 1.0);
+    const maxPhysicalError = AppConstants.maxPhysicalErrorMm;
+    final clampedNorm =
+        ((err + maxPhysicalError) / (2 * maxPhysicalError)).clamp(0.0, 1.0);
+
+    final isLost = !lineDetected || err.abs() >= 90.0;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(6),
@@ -309,24 +323,28 @@ class SensorBar extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Line: ${lineDetected ? "DETECTED" : "LOST"}',
+                'Line: ${!isLost ? "DETECTED" : "LOST"}',
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: lineDetected ? Colors.green.shade700 : Colors.red.shade700,
+                  color: !isLost ? Colors.green.shade700 : Colors.red.shade700,
                 ),
               ),
               Text(
-                'Error: ${err.toStringAsFixed(2)}',
+                isLost
+                    ? 'Error: LINE LOST'
+                    : 'Offset: ${err >= 0 ? "+" : ""}${err.toStringAsFixed(1)} mm',
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: err.abs() < 0.5 ? Colors.teal.shade700 : Colors.deepOrange,
+                  color: isLost
+                      ? Colors.red.shade700
+                      : (err.abs() < 5.0 ? Colors.teal.shade700 : Colors.deepOrange),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 4),
           LayoutBuilder(
             builder: (context, constraints) {
               final width = constraints.maxWidth;
@@ -341,6 +359,18 @@ class SensorBar extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: Colors.grey.shade300,
                       borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                  // Center deadband zone (-5mm to +5mm)
+                  Positioned(
+                    left: (width / 2) - ((5.0 / (2 * maxPhysicalError)) * width),
+                    child: Container(
+                      width: (10.0 / (2 * maxPhysicalError)) * width,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: Colors.teal.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
                   // Center tick mark
@@ -359,7 +389,7 @@ class SensorBar extends StatelessWidget {
                       width: 12,
                       height: 12,
                       decoration: BoxDecoration(
-                        color: lineDetected ? Colors.teal : Colors.red,
+                        color: !isLost ? Colors.teal : Colors.red,
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 1.5),
                         boxShadow: const [
@@ -375,6 +405,15 @@ class SensorBar extends StatelessWidget {
                 ],
               );
             },
+          ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: const [
+              Text('-52.5mm', style: TextStyle(fontSize: 8, color: Colors.grey)),
+              Text('0 mm (Center)', style: TextStyle(fontSize: 8, color: Colors.grey)),
+              Text('+52.5mm', style: TextStyle(fontSize: 8, color: Colors.grey)),
+            ],
           ),
         ],
       ),

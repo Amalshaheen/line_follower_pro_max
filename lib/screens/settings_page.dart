@@ -21,8 +21,10 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _kdController;
   late final TextEditingController _maxSpeedController;
   late final TextEditingController _baseSpeedController;
+  late final TextEditingController _minSpeedController;
   late final TextEditingController _thresholdController;
   late final TextEditingController _deviceNameController;
+  late bool _invertSteering;
 
   @override
   void initState() {
@@ -42,6 +44,10 @@ class _SettingsPageState extends State<SettingsPage> {
     _baseSpeedController = TextEditingController(
       text: widget.initialSettings.baseSpeed.toString(),
     );
+    _minSpeedController = TextEditingController(
+      text: widget.initialSettings.minSpeed.toString(),
+    );
+    _invertSteering = widget.initialSettings.invertSteering;
     _thresholdController = TextEditingController(
       text: widget.initialSettings.threshold.toString(),
     );
@@ -57,6 +63,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _kdController.dispose();
     _maxSpeedController.dispose();
     _baseSpeedController.dispose();
+    _minSpeedController.dispose();
     _thresholdController.dispose();
     _deviceNameController.dispose();
     super.dispose();
@@ -93,6 +100,8 @@ class _SettingsPageState extends State<SettingsPage> {
       kd: double.parse(_kdController.text.trim()),
       maxSpeed: int.parse(_maxSpeedController.text.trim()),
       baseSpeed: int.parse(_baseSpeedController.text.trim()),
+      minSpeed: int.parse(_minSpeedController.text.trim()),
+      invertSteering: _invertSteering,
       threshold: int.parse(_thresholdController.text.trim()),
       deviceName: _deviceNameController.text.trim().isEmpty
           ? widget.initialSettings.deviceName
@@ -121,6 +130,8 @@ class _SettingsPageState extends State<SettingsPage> {
         _kdController.text = settings.kd.toStringAsFixed(2);
         _maxSpeedController.text = settings.maxSpeed.toString();
         _baseSpeedController.text = settings.baseSpeed.toString();
+        _minSpeedController.text = settings.minSpeed.toString();
+        _invertSteering = settings.invertSteering;
         _thresholdController.text = settings.threshold.toString();
         _deviceNameController.text = settings.deviceName;
       });
@@ -140,6 +151,8 @@ class _SettingsPageState extends State<SettingsPage> {
       _kdController.text = defaults.kd.toStringAsFixed(2);
       _maxSpeedController.text = defaults.maxSpeed.toString();
       _baseSpeedController.text = defaults.baseSpeed.toString();
+      _minSpeedController.text = defaults.minSpeed.toString();
+      _invertSteering = defaults.invertSteering;
       _thresholdController.text = defaults.threshold.toString();
       // connection mode and device name are preserved (not reset)
     });
@@ -229,6 +242,29 @@ class _SettingsPageState extends State<SettingsPage> {
                   border: OutlineInputBorder(),
                 ),
                 validator: _validateInt,
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _minSpeedController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Min speed (Deadband)',
+                  helperText: 'Stiction compensation for BTS7960 (default: 30)',
+                  border: OutlineInputBorder(),
+                ),
+                validator: _validateInt,
+              ),
+              const SizedBox(height: 10),
+              SwitchListTile(
+                title: const Text('Invert Steering Polarity'),
+                subtitle: Text(
+                  _invertSteering
+                      ? 'Inverted (Reversed motor/sensor direction)'
+                      : 'Normal steering polarity',
+                ),
+                value: _invertSteering,
+                onChanged: (val) => setState(() => _invertSteering = val),
+                contentPadding: EdgeInsets.zero,
               ),
               const SizedBox(height: 10),
               TextFormField(

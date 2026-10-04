@@ -49,6 +49,10 @@ class _DashboardPageState extends State<DashboardPage> {
   late TextEditingController baseSpeedController = TextEditingController(
     text: AppConstants.defaultBaseSpeed.toString(),
   );
+  late TextEditingController minSpeedController = TextEditingController(
+    text: AppConstants.defaultMinSpeed.toString(),
+  );
+  bool invertSteering = AppConstants.defaultInvertSteering;
   late TextEditingController allThresholdController = TextEditingController(
     text: AppConstants.defaultThreshold.toString(),
   );
@@ -111,6 +115,8 @@ class _DashboardPageState extends State<DashboardPage> {
       kd = settings.kd;
       maxSpeedController.text = settings.maxSpeed.toString();
       baseSpeedController.text = settings.baseSpeed.toString();
+      minSpeedController.text = settings.minSpeed.toString();
+      invertSteering = settings.invertSteering;
       sensorThresholds = savedSensorThresholds ??
           List<int>.filled(AppConstants.sensorCount, settings.threshold);
       sensorEnabled = savedSensorEnabled ??
@@ -322,12 +328,11 @@ class _DashboardPageState extends State<DashboardPage> {
 
   void _postConnect() {
     _activeService?.sendCommand(AppConstants.cmdQueryThresholds);
-    _activeService?.sendCommand(
-      '${AppConstants.cmdAutoStopPrefix}${autoStopOnFinish ? 1 : 0}',
-    );
-    _activeService?.sendCommand(
-      '${AppConstants.cmdLineLostRecoveryPrefix}${lineLostRecoveryEnabled ? 1 : 0}',
-    );
+    _activeService?.sendCommand(AppConstants.cmdQuerySensorMask);
+    final minSpeed =
+        int.tryParse(minSpeedController.text) ?? AppConstants.defaultMinSpeed;
+    _activeService?.sendMinSpeed(minSpeed);
+    _activeService?.sendInvertSteering(invertSteering);
   }
 
   Future<bool> _connectToDevice() async {
@@ -437,8 +442,9 @@ class _DashboardPageState extends State<DashboardPage> {
       kp: kp,
       ki: ki,
       kd: kd,
-      maxSpeed: int.tryParse(maxSpeedController.text) ?? 255,
-      baseSpeed: int.tryParse(baseSpeedController.text) ?? 150,
+      maxSpeed: int.tryParse(maxSpeedController.text) ?? AppConstants.defaultMaxSpeed,
+      baseSpeed: int.tryParse(baseSpeedController.text) ?? AppConstants.defaultBaseSpeed,
+      minSpeed: int.tryParse(minSpeedController.text) ?? AppConstants.defaultMinSpeed,
     );
     await _historyService.addRun(run);
     await _loadHistory();
@@ -451,12 +457,14 @@ class _DashboardPageState extends State<DashboardPage> {
       kd = run.kd;
       maxSpeedController.text = run.maxSpeed.toString();
       baseSpeedController.text = run.baseSpeed.toString();
+      minSpeedController.text = run.minSpeed.toString();
     });
     _activeService?.sendCommand('${AppConstants.cmdKpPrefix}${run.kp.toStringAsFixed(2)}');
     _activeService?.sendCommand('${AppConstants.cmdKiPrefix}${run.ki.toStringAsFixed(2)}');
     _activeService?.sendCommand('${AppConstants.cmdKdPrefix}${run.kd.toStringAsFixed(2)}');
     _activeService?.sendCommand('${AppConstants.cmdMaxSpeedPrefix}${run.maxSpeed}');
     _activeService?.sendCommand('${AppConstants.cmdBaseSpeedPrefix}${run.baseSpeed}');
+    _activeService?.sendMinSpeed(run.minSpeed);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -676,15 +684,58 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
+  void _handleMinSpeedSend() {
+    final minSpeed =
+        int.tryParse(minSpeedController.text.trim()) ?? AppConstants.defaultMinSpeed;
+    _activeService?.sendMinSpeed(minSpeed);
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(milliseconds: 1200),
+        content: Text('Min speed (deadband) set to $minSpeed'),
+      ),
+    );
+  }
+
+  void _handleInvertSteeringChanged(bool inverted) {
+    setState(() => invertSteering = inverted);
+    _activeService?.sendInvertSteering(inverted);
+    _settingsService.saveSettings(
+      _defaultSettings.copyWith(invertSteering: inverted),
+    );
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(milliseconds: 1200),
+        content: Text(
+          inverted ? 'Steering polarity INVERTED' : 'Steering polarity NORMAL',
+        ),
+      ),
+    );
+  }
+
   void _handleResetSpeedThresholdDefaults() {
     setState(() {
       maxSpeedController.text = _defaultSettings.maxSpeed.toString();
       baseSpeedController.text = _defaultSettings.baseSpeed.toString();
+      minSpeedController.text = _defaultSettings.minSpeed.toString();
+      invertSteering = _defaultSettings.invertSteering;
     });
+    _activeService?.sendCommand(
+      '${AppConstants.cmdMaxSpeedPrefix}${_defaultSettings.maxSpeed}',
+    );
+    _activeService?.sendCommand(
+      '${AppConstants.cmdBaseSpeedPrefix}${_defaultSettings.baseSpeed}',
+    );
+    _activeService?.sendMinSpeed(_defaultSettings.minSpeed);
+    _activeService?.sendInvertSteering(_defaultSettings.invertSteering);
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         duration: Duration(milliseconds: 800),
-        content: Text('Speed reset to saved defaults'),
+        content: Text('Speed & polarity reset to saved defaults'),
       ),
     );
   }
@@ -697,6 +748,7 @@ class _DashboardPageState extends State<DashboardPage> {
   void dispose() {
     maxSpeedController.dispose();
     baseSpeedController.dispose();
+    minSpeedController.dispose();
     allThresholdController.dispose();
     _scanSubscription?.cancel();
     _isScanningSubscription?.cancel();
@@ -807,6 +859,9 @@ class _DashboardPageState extends State<DashboardPage> {
               SpeedCard(
                 maxSpeedController: maxSpeedController,
                 baseSpeedController: baseSpeedController,
+                minSpeedController: minSpeedController,
+                invertSteering: invertSteering,
+                onInvertSteeringChanged: _handleInvertSteeringChanged,
                 onMaxSpeedSend: () {
                   final maxSpeed = maxSpeedController.text.trim();
                   _activeService?.sendCommand(
@@ -835,6 +890,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   );
                 },
+                onMinSpeedSend: _handleMinSpeedSend,
                 onResetDefaults: _handleResetSpeedThresholdDefaults,
               ),
               const SizedBox(height: 12),

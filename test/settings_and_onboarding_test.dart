@@ -18,6 +18,8 @@ void main() {
       expect(defaults.kd, AppConstants.defaultKd);
       expect(defaults.maxSpeed, AppConstants.defaultMaxSpeed);
       expect(defaults.baseSpeed, AppConstants.defaultBaseSpeed);
+      expect(defaults.minSpeed, AppConstants.defaultMinSpeed);
+      expect(defaults.invertSteering, AppConstants.defaultInvertSteering);
       expect(defaults.threshold, AppConstants.defaultThreshold);
       expect(defaults.deviceName, AppConstants.defaultDeviceName);
     });
@@ -27,9 +29,13 @@ void main() {
       final updated = defaults.copyWith(
         kp: 42.0,
         deviceName: 'RoboRacer',
+        minSpeed: 45,
+        invertSteering: true,
       );
       expect(updated.kp, 42.0);
       expect(updated.deviceName, 'RoboRacer');
+      expect(updated.minSpeed, 45);
+      expect(updated.invertSteering, isTrue);
       expect(updated.ki, defaults.ki);
       expect(updated.maxSpeed, defaults.maxSpeed);
     });
@@ -57,6 +63,8 @@ void main() {
         kd: 1.5,
         maxSpeed: 220,
         baseSpeed: 130,
+        minSpeed: 45,
+        invertSteering: true,
         threshold: 2500,
         deviceName: 'CustomBot_BLE',
       );
@@ -68,6 +76,8 @@ void main() {
       expect(loaded.kd, 1.5);
       expect(loaded.maxSpeed, 220);
       expect(loaded.baseSpeed, 130);
+      expect(loaded.minSpeed, 45);
+      expect(loaded.invertSteering, isTrue);
       expect(loaded.threshold, 2500);
       expect(loaded.deviceName, 'CustomBot_BLE');
     });

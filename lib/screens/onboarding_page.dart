@@ -30,7 +30,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
   late final TextEditingController _kdController;
   late final TextEditingController _maxSpeedController;
   late final TextEditingController _baseSpeedController;
+  late final TextEditingController _minSpeedController;
   late final TextEditingController _thresholdController;
+  late bool _invertSteering;
 
   @override
   void initState() {
@@ -53,6 +55,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
     _baseSpeedController = TextEditingController(
       text: AppConstants.defaultBaseSpeed.toString(),
     );
+    _minSpeedController = TextEditingController(
+      text: AppConstants.defaultMinSpeed.toString(),
+    );
+    _invertSteering = AppConstants.defaultInvertSteering;
     _thresholdController = TextEditingController(
       text: AppConstants.defaultThreshold.toString(),
     );
@@ -70,6 +76,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
       _kdController.text = settings.kd.toStringAsFixed(2);
       _maxSpeedController.text = settings.maxSpeed.toString();
       _baseSpeedController.text = settings.baseSpeed.toString();
+      _minSpeedController.text = settings.minSpeed.toString();
+      _invertSteering = settings.invertSteering;
       _thresholdController.text = settings.threshold.toString();
     });
   }
@@ -83,6 +91,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     _kdController.dispose();
     _maxSpeedController.dispose();
     _baseSpeedController.dispose();
+    _minSpeedController.dispose();
     _thresholdController.dispose();
     super.dispose();
   }
@@ -123,6 +132,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
           AppConstants.defaultMaxSpeed,
       baseSpeed: int.tryParse(_baseSpeedController.text.trim()) ??
           AppConstants.defaultBaseSpeed,
+      minSpeed: int.tryParse(_minSpeedController.text.trim()) ??
+          AppConstants.defaultMinSpeed,
+      invertSteering: _invertSteering,
       threshold: int.tryParse(_thresholdController.text.trim()) ??
           AppConstants.defaultThreshold,
       deviceName: _deviceNameController.text.trim().isEmpty
@@ -588,6 +600,30 @@ class _OnboardingPageState extends State<OnboardingPage> {
             border: OutlineInputBorder(),
           ),
           validator: (v) => _validateInt(v, min: 0, max: 255),
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _minSpeedController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Default Min Speed / Deadband (PWM)',
+            helperText: 'Stiction compensation for BTS7960 (0–255, default: 30)',
+            prefixIcon: Icon(Icons.speed_outlined),
+            border: OutlineInputBorder(),
+          ),
+          validator: (v) => _validateInt(v, min: 0, max: 255),
+        ),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          title: const Text('Invert Steering Polarity'),
+          subtitle: Text(
+            _invertSteering
+                ? 'Inverted (Reversed motor/sensor polarity)'
+                : 'Normal steering polarity',
+          ),
+          value: _invertSteering,
+          onChanged: (val) => setState(() => _invertSteering = val),
+          contentPadding: EdgeInsets.zero,
         ),
         const SizedBox(height: 16),
         TextFormField(

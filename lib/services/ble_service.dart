@@ -329,6 +329,17 @@ class BleService implements RobotService {
   }
 
   @override
+  bool sendMinSpeed(int minSpeed) {
+    final clamped = minSpeed.clamp(0, 255);
+    return sendCommand('${AppConstants.cmdMinSpeedPrefix}$clamped');
+  }
+
+  @override
+  bool sendInvertSteering(bool invert) {
+    return sendCommand('${AppConstants.cmdInvertSteeringPrefix}${invert ? 1 : 0}');
+  }
+
+  @override
   Future<void> dispose() async {
     await disconnect();
     await FlutterBluePlus.stopScan();

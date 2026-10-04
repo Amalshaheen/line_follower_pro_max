@@ -8,6 +8,8 @@ class AppSettings {
   final double kd;
   final int maxSpeed;
   final int baseSpeed;
+  final int minSpeed;
+  final bool invertSteering;
   final int threshold;
 
   /// The device name (or name prefix) to scan/filter for over BLE.
@@ -19,6 +21,8 @@ class AppSettings {
     required this.kd,
     required this.maxSpeed,
     required this.baseSpeed,
+    this.minSpeed = AppConstants.defaultMinSpeed,
+    this.invertSteering = AppConstants.defaultInvertSteering,
     required this.threshold,
     this.deviceName = AppConstants.defaultDeviceName,
   });
@@ -30,6 +34,8 @@ class AppSettings {
       kd: AppConstants.defaultKd,
       maxSpeed: AppConstants.defaultMaxSpeed,
       baseSpeed: AppConstants.defaultBaseSpeed,
+      minSpeed: AppConstants.defaultMinSpeed,
+      invertSteering: AppConstants.defaultInvertSteering,
       threshold: AppConstants.defaultThreshold,
       deviceName: AppConstants.defaultDeviceName,
     );
@@ -41,6 +47,8 @@ class AppSettings {
     double? kd,
     int? maxSpeed,
     int? baseSpeed,
+    int? minSpeed,
+    bool? invertSteering,
     int? threshold,
     String? deviceName,
   }) {
@@ -50,6 +58,8 @@ class AppSettings {
       kd: kd ?? this.kd,
       maxSpeed: maxSpeed ?? this.maxSpeed,
       baseSpeed: baseSpeed ?? this.baseSpeed,
+      minSpeed: minSpeed ?? this.minSpeed,
+      invertSteering: invertSteering ?? this.invertSteering,
       threshold: threshold ?? this.threshold,
       deviceName: deviceName ?? this.deviceName,
     );
@@ -62,6 +72,8 @@ class SettingsService {
   static const String _kdKey = 'settings.default.kd';
   static const String _maxSpeedKey = 'settings.default.maxSpeed';
   static const String _baseSpeedKey = 'settings.default.baseSpeed';
+  static const String _minSpeedKey = 'settings.default.minSpeed';
+  static const String _invertSteeringKey = 'settings.default.invertSteering';
   static const String _thresholdKey = 'settings.default.threshold';
   static const String _sensorThresholdsKey = 'settings.calibration.thresholds';
   static const String _sensorEnabledKey = 'settings.calibration.enabled';
@@ -94,6 +106,8 @@ class SettingsService {
       kd: _prefs?.getDouble(_kdKey) ?? defaults.kd,
       maxSpeed: _prefs?.getInt(_maxSpeedKey) ?? defaults.maxSpeed,
       baseSpeed: _prefs?.getInt(_baseSpeedKey) ?? defaults.baseSpeed,
+      minSpeed: _prefs?.getInt(_minSpeedKey) ?? defaults.minSpeed,
+      invertSteering: _prefs?.getBool(_invertSteeringKey) ?? defaults.invertSteering,
       threshold: _prefs?.getInt(_thresholdKey) ?? defaults.threshold,
       deviceName: _prefs?.getString(_deviceNameKey) ?? defaults.deviceName,
     );
@@ -106,6 +120,8 @@ class SettingsService {
     await _prefs?.setDouble(_kdKey, settings.kd);
     await _prefs?.setInt(_maxSpeedKey, settings.maxSpeed);
     await _prefs?.setInt(_baseSpeedKey, settings.baseSpeed);
+    await _prefs?.setInt(_minSpeedKey, settings.minSpeed);
+    await _prefs?.setBool(_invertSteeringKey, settings.invertSteering);
     await _prefs?.setInt(_thresholdKey, settings.threshold);
     await _prefs?.setString(_deviceNameKey, settings.deviceName);
   }
@@ -177,6 +193,8 @@ class SettingsService {
     await _prefs?.remove(_kdKey);
     await _prefs?.remove(_maxSpeedKey);
     await _prefs?.remove(_baseSpeedKey);
+    await _prefs?.remove(_minSpeedKey);
+    await _prefs?.remove(_invertSteeringKey);
     await _prefs?.remove(_thresholdKey);
     await _prefs?.remove(_sensorThresholdsKey);
     await _prefs?.remove(_sensorEnabledKey);

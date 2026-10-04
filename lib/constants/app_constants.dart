@@ -25,19 +25,31 @@ class AppConstants {
       '6E400003-B5A3-F393-E0A9-E50E24DCCA9E';
 
   // ---------------------------------------------------------------------------
-  // Default PID configuration values (matching hardware defaults)
+  // Default PID configuration values (matching hardware defaults in hardware_updated.ino)
   // ---------------------------------------------------------------------------
-  static const double defaultKp = 30.0;
+  static const double defaultKp = 4.5;
   static const double defaultKi = 0.0;
-  static const double defaultKd = 0.0;
-  static const double defaultPScale = 10.0;
+  static const double defaultKd = 12.0;
+  static const double defaultPScale = 1.0;
   static const double defaultIScale = 1.0;
   static const double defaultDScale = 1.0;
 
-  // Default speed values
+  // Default speed and physical configuration
   static const int defaultMaxSpeed = 255;
-  static const int defaultBaseSpeed = 150;
+  static const int defaultBaseSpeed = 110;
+  static const int defaultMinSpeed = 30; // BTS7960 deadband stiction compensation
+  static const bool defaultInvertSteering = false;
   static const int defaultThreshold = 2000;
+
+  // CAD-Extracted Physical X-Coordinates in mm (Relative to Robot Centerline)
+  static const List<double> sensorXCoordinatesMm = [
+    -52.52, -46.01, -36.47, -25.97, -15.58, -5.27,
+      5.27,  15.58,  25.97,  36.47,  46.01,  52.52,
+  ];
+  static const double maxPhysicalErrorMm = 52.52;
+
+  // Odometry: (pi * 40mm) / 8 magnets = 15.708 mm per tick
+  static const double mmPerTick = 15.708;
 
   // PID scale options
   static const List<double> pidScaleOptions = [10.0, 1.0, 0.1, 0.01];
@@ -54,11 +66,14 @@ class AppConstants {
   // ---------------------------------------------------------------------------
   static const String cmdRunStart = 'RUN=1';
   static const String cmdRunStop = 'RUN=0';
+  static const String cmdToggleRun = 'S';
   static const String cmdKpPrefix = 'KP=';
   static const String cmdKiPrefix = 'KI=';
   static const String cmdKdPrefix = 'KD=';
   static const String cmdMaxSpeedPrefix = 'MAX=';
   static const String cmdBaseSpeedPrefix = 'BASE=';
+  static const String cmdMinSpeedPrefix = 'MIN=';
+  static const String cmdInvertSteeringPrefix = 'INV=';
   static const String cmdCalibrateBlack = 'CAL=BLACK';
   static const String cmdCalibrateWhite = 'CAL=WHITE';
   static const String cmdQueryTime = 'TIME?';
@@ -111,6 +126,8 @@ class AppConstants {
   // Speed labels
   static const String maxSpeedLabel = 'Max speed';
   static const String baseSpeedLabel = 'Base speed';
+  static const String minSpeedLabel = 'Min speed (Deadband)';
+  static const String invertSteeringLabel = 'Invert steering';
 
   // Calibration labels
   static const String calibrateBlackLabel = 'Calibrate Black';

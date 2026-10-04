@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../constants/app_constants.dart';
 
 enum RunCaptureType { pathFinished, startStop }
 
@@ -13,6 +14,7 @@ class PidRunHistory {
   final double kd;
   final int maxSpeed;
   final int baseSpeed;
+  final int minSpeed;
 
   PidRunHistory({
     required this.id,
@@ -24,6 +26,7 @@ class PidRunHistory {
     required this.kd,
     required this.maxSpeed,
     required this.baseSpeed,
+    this.minSpeed = AppConstants.defaultMinSpeed,
   });
 
   /// Create a new run history entry with auto-generated ID.
@@ -35,6 +38,7 @@ class PidRunHistory {
     required double kd,
     required int maxSpeed,
     required int baseSpeed,
+    int minSpeed = AppConstants.defaultMinSpeed,
   }) {
     return PidRunHistory(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -46,6 +50,7 @@ class PidRunHistory {
       kd: kd,
       maxSpeed: maxSpeed,
       baseSpeed: baseSpeed,
+      minSpeed: minSpeed,
     );
   }
 
@@ -112,6 +117,7 @@ class PidRunHistory {
       'kd': kd,
       'maxSpeed': maxSpeed,
       'baseSpeed': baseSpeed,
+      'minSpeed': minSpeed,
     };
   }
 
@@ -127,6 +133,7 @@ class PidRunHistory {
       kd: (json['kd'] as num).toDouble(),
       maxSpeed: json['maxSpeed'] as int,
       baseSpeed: json['baseSpeed'] as int,
+      minSpeed: (json['minSpeed'] as num?)?.toInt() ?? AppConstants.defaultMinSpeed,
     );
   }
 

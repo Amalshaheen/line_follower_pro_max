@@ -76,4 +76,10 @@ abstract class RobotService {
 
   /// Synchronize the local list of enabled sensors.
   void setSensorEnabledList(List<bool> enabled);
+
+  /// Set deadband compensation speed (0-255) to overcome BTS7960 stiction.
+  bool sendMinSpeed(int minSpeed);
+
+  /// Invert steering polarity for reversed sensor array or motor wiring.
+  bool sendInvertSteering(bool invert);
 }

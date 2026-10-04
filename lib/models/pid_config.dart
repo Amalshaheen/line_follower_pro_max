@@ -1,7 +1,10 @@
+import '../constants/app_constants.dart';
+
 /// PID controller configuration for the line follower robot.
 /// 
-/// Hardware uses direct values: Kp=30.0, Ki=0.0, Kd=0.0 (defaults)
-/// The app uses slider values (0-1) multiplied by scale to get effective values.
+/// Hardware defaults in hardware_updated.ino:
+/// Kp=4.5 (PWM per mm error), Ki=0.0, Kd=12.0 (PWM per mm/s),
+/// BaseSpeed=110, MaxSpeed=255, MinSpeed=30, InvertSteering=false.
 class PidConfig {
   double kp; // Effective Kp value sent to hardware
   double ki; // Effective Ki value sent to hardware
@@ -11,16 +14,20 @@ class PidConfig {
   double dScale;
   int maxSpeed;
   int baseSpeed;
+  int minSpeed;
+  bool invertSteering;
 
   PidConfig({
-    this.kp = 30.0,
-    this.ki = 0.0,
-    this.kd = 0.0,
-    this.pScale = 10.0, // P scale: 10.0 for coarse, 1.0 for fine
-    this.iScale = 1.0,
-    this.dScale = 1.0,
-    this.maxSpeed = 255,
-    this.baseSpeed = 150,
+    this.kp = AppConstants.defaultKp,
+    this.ki = AppConstants.defaultKi,
+    this.kd = AppConstants.defaultKd,
+    this.pScale = AppConstants.defaultPScale,
+    this.iScale = AppConstants.defaultIScale,
+    this.dScale = AppConstants.defaultDScale,
+    this.maxSpeed = AppConstants.defaultMaxSpeed,
+    this.baseSpeed = AppConstants.defaultBaseSpeed,
+    this.minSpeed = AppConstants.defaultMinSpeed,
+    this.invertSteering = AppConstants.defaultInvertSteering,
   });
 
   /// Get slider value (0-1) from effective value based on scale.
@@ -46,6 +53,8 @@ class PidConfig {
     double? dScale,
     int? maxSpeed,
     int? baseSpeed,
+    int? minSpeed,
+    bool? invertSteering,
   }) {
     return PidConfig(
       kp: kp ?? this.kp,
@@ -56,6 +65,8 @@ class PidConfig {
       dScale: dScale ?? this.dScale,
       maxSpeed: maxSpeed ?? this.maxSpeed,
       baseSpeed: baseSpeed ?? this.baseSpeed,
+      minSpeed: minSpeed ?? this.minSpeed,
+      invertSteering: invertSteering ?? this.invertSteering,
     );
   }
 }

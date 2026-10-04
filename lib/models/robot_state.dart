@@ -4,15 +4,20 @@ import 'dart:typed_data';
 ///
 /// Layout:
 /// - Bytes 0–11: 12 individual 8-bit analog IR values (0–255).
-/// - Bytes 12–13: Signed 16-bit integer representing `error * 100` (little-endian).
-/// - Byte 14: Status flags (Bit 0 = motors running, Bit 1 = line detected).
+/// - Bytes 12–13: Signed 16-bit integer representing `errorMm * 100` (little-endian).
+///                In normal operation: -52.52 mm to +52.52 mm.
+///                When line lost: 99.90 mm (9990).
+/// - Byte 14: Status flags (Bit 0 = motors running, Bit 1 = line lost).
 class TelemetryData {
   final List<int> sensors; // 12 values: 0-255
-  final double error; // Line error (e.g., -5.5 to +5.5)
+  final double error; // Line error in mm (-52.52 to +52.52 mm, or 99.90 when lost)
   final bool motorsRunning;
   final bool lineDetected;
   final int rawFlags;
   final DateTime timestamp;
+
+  /// Semantic accessor for error in millimeters
+  double get errorMm => error;
 
   const TelemetryData({
     required this.sensors,
@@ -52,7 +57,7 @@ class RobotState {
   final int runtime; // Runtime in milliseconds
   final List<int> sensorRawValues; // Raw analog values from sensors (0-255 or 0-4095)
   final List<bool> sensorOnLine; // Processed boolean values
-  final double lineError; // Current line tracking error (-5.5 to +5.5)
+  final double lineError; // Current line tracking error in millimeters (-52.52 to +52.52 mm)
   final bool lineDetected;
   final String latestMessage;
   final TelemetryData? latestTelemetry;
