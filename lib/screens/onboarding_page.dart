@@ -495,17 +495,17 @@ class _OnboardingPageState extends State<OnboardingPage> {
             ActionChip(
               avatar: const Icon(Icons.balance, size: 16),
               label: const Text('Balanced (Default)'),
-              onPressed: () => _applyPidPreset(30.0, 0.0, 0.0),
+              onPressed: () => _applyPidPreset(2.5, 0.0, 0.08),
             ),
             ActionChip(
               avatar: const Icon(Icons.flash_on, size: 16),
               label: const Text('Aggressive / High Kp'),
-              onPressed: () => _applyPidPreset(45.0, 0.05, 2.5),
+              onPressed: () => _applyPidPreset(3.5, 0.02, 0.12),
             ),
             ActionChip(
               avatar: const Icon(Icons.waves, size: 16),
               label: const Text('Smooth / Safe'),
-              onPressed: () => _applyPidPreset(20.0, 0.0, 1.0),
+              onPressed: () => _applyPidPreset(1.8, 0.0, 0.05),
             ),
           ],
         ),

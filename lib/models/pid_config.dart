@@ -2,9 +2,9 @@ import '../constants/app_constants.dart';
 
 /// PID controller configuration for the line follower robot.
 /// 
-/// Hardware defaults in hardware_updated.ino:
-/// Kp=4.5 (PWM per mm error), Ki=0.0, Kd=12.0 (PWM per mm/s),
-/// BaseSpeed=110, MaxSpeed=255, MinSpeed=30, InvertSteering=false.
+/// Hardware defaults in line_follower_hardware.ino:
+/// Kp=2.5 (PWM per mm error), Ki=0.0, Kd=0.08 (PWM per mm/s),
+/// BaseSpeed=70, MaxSpeed=120, MinSpeed=30, InvertSteering=false.
 class PidConfig {
   double kp; // Effective Kp value sent to hardware
   double ki; // Effective Ki value sent to hardware

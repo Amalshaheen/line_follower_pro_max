@@ -8,6 +8,7 @@ import '../models/index.dart';
 import '../services/index.dart';
 import 'bluetooth_settings_page.dart';
 import 'settings_page.dart';
+import 'sequence_editor_screen.dart';
 
 /// Main dashboard screen for controlling the line follower robot.
 class DashboardPage extends StatefulWidget {
@@ -18,6 +19,7 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
+  int _selectedTabIndex = 0;
   bool isRunning = false;
   bool trackFinished = false;
   int runtime = 0;
@@ -135,6 +137,7 @@ class _DashboardPageState extends State<DashboardPage> {
       onTrackFinished: _onTrackFinished,
       onAckReceived: _onAckReceived,
       onThresholdsReceived: _onThresholdsReceived,
+      onConfigReceived: _onConfigReceived,
       onDisconnected: _onDisconnected,
     );
 
@@ -207,7 +210,10 @@ class _DashboardPageState extends State<DashboardPage> {
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
+
     if (command == 'BASE') {
+      final spd = int.tryParse(value);
+      if (spd != null) baseSpeedController.text = value;
       messenger.showSnackBar(
         SnackBar(
           duration: const Duration(milliseconds: 1200),
@@ -215,13 +221,59 @@ class _DashboardPageState extends State<DashboardPage> {
         ),
       );
     } else if (command == 'MAX') {
+      final spd = int.tryParse(value);
+      if (spd != null) maxSpeedController.text = value;
       messenger.showSnackBar(
         SnackBar(
           duration: const Duration(milliseconds: 1200),
           content: Text('Max speed confirmed: $value'),
         ),
       );
+    } else if (command == 'MIN') {
+      final spd = int.tryParse(value);
+      if (spd != null) minSpeedController.text = value;
+      messenger.showSnackBar(
+        SnackBar(
+          duration: const Duration(milliseconds: 1200),
+          content: Text('Min speed confirmed: $value'),
+        ),
+      );
+    } else if (command == 'KP') {
+      final parsed = double.tryParse(value);
+      if (parsed != null) setState(() => kp = parsed);
+    } else if (command == 'KI') {
+      final parsed = double.tryParse(value);
+      if (parsed != null) setState(() => ki = parsed);
+    } else if (command == 'KD') {
+      final parsed = double.tryParse(value);
+      if (parsed != null) setState(() => kd = parsed);
+    } else if (command == 'INV') {
+      setState(() => invertSteering = (value == '1'));
     }
+  }
+
+  void _onConfigReceived(
+    double hwKp,
+    double hwKi,
+    double hwKd,
+    int hwBase,
+    int hwMax,
+    int hwMin,
+    bool hwInv,
+  ) {
+    if (!mounted) return;
+    setState(() {
+      kp = hwKp;
+      ki = hwKi;
+      kd = hwKd;
+      baseSpeedController.text = hwBase.toString();
+      maxSpeedController.text = hwMax.toString();
+      minSpeedController.text = hwMin.toString();
+      invertSteering = hwInv;
+    });
+    debugPrint(
+      '✅ [SYNC] Hardware config synchronized: P=$hwKp, I=$hwKi, D=$hwKd, Base=$hwBase, Max=$hwMax, Min=$hwMin, Inv=$hwInv',
+    );
   }
 
   void _onThresholdsReceived(List<int> thresholds) {
@@ -807,103 +859,135 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SensorsCard(
-                sensorOnLine: sensorOnLine,
-                sensorRawValues: sensorRawValues,
-                sensorEnabled: sensorEnabled,
-                showAnalog: showAnalogSensors,
-                isCalibrationMode: isCalibrationMode,
-                sensorThresholds: sensorThresholds,
-                lineError: lineError,
-                lineDetected: lineDetected,
-                onShowAnalogChanged: (value) {
-                  setState(() => showAnalogSensors = value);
-                },
-                onCalibrationModeChanged: _handleCalibrationModeChanged,
-                onSensorThresholdPreview: _handleSensorThresholdPreview,
-                onSensorThresholdCommit: _handleSensorThresholdCommit,
-                onAllSensorThresholdCommit: _handleAllSensorThresholdCommit,
-                onSensorEnableChanged: _handleSensorEnableChanged,
-                onAllSensorsEnableChanged: _handleAllSensorsEnableChanged,
-                onSaveCalibration: _handleSaveCalibration,
-              ),
-              const SizedBox(height: 12),
-              ControlSummaryCard(
-                isRunning: isRunning,
-                trackFinished: trackFinished,
-                runtime: runtime,
-                autoStopOnFinish: autoStopOnFinish,
-                lineLostRecoveryEnabled: lineLostRecoveryEnabled,
-                onAutoStopChanged: _handleAutoStopChanged,
-                onLineLostRecoveryChanged: _handleLineLostRecoveryChanged,
-                onStartStop: _handleStartStop,
-              ),
-              const SizedBox(height: 12),
-              PidCard(
-                pValue: kp,
-                iValue: ki,
-                dValue: kd,
-                onPChanged: _handlePChanged,
-                onIChanged: _handleIChanged,
-                onDChanged: _handleDChanged,
-                onSendAll: _handlePidSend,
-                onResetDefaults: _handleResetPidDefaults,
-              ),
-              const SizedBox(height: 12),
-              SpeedCard(
-                maxSpeedController: maxSpeedController,
-                baseSpeedController: baseSpeedController,
-                minSpeedController: minSpeedController,
-                invertSteering: invertSteering,
-                onInvertSteeringChanged: _handleInvertSteeringChanged,
-                onMaxSpeedSend: () {
-                  final maxSpeed = maxSpeedController.text.trim();
-                  _activeService?.sendCommand(
-                    '${AppConstants.cmdMaxSpeedPrefix}$maxSpeed',
-                  );
-                  final messenger = ScaffoldMessenger.of(context);
-                  messenger.clearSnackBars();
-                  messenger.showSnackBar(
-                    SnackBar(
-                      duration: const Duration(milliseconds: 1200),
-                      content: Text('Max speed set to $maxSpeed'),
-                    ),
-                  );
-                },
-                onBaseSpeedSend: () {
-                  final baseSpeed = baseSpeedController.text.trim();
-                  _activeService?.sendCommand(
-                    '${AppConstants.cmdBaseSpeedPrefix}$baseSpeed',
-                  );
-                  final messenger = ScaffoldMessenger.of(context);
-                  messenger.clearSnackBars();
-                  messenger.showSnackBar(
-                    SnackBar(
-                      duration: const Duration(milliseconds: 1200),
-                      content: Text('Base speed set to $baseSpeed'),
-                    ),
-                  );
-                },
-                onMinSpeedSend: _handleMinSpeedSend,
-                onResetDefaults: _handleResetSpeedThresholdDefaults,
-              ),
-              const SizedBox(height: 12),
-              HistoryCard(
-                history: _filteredHistory,
-                selectedFilter: _historyFilter,
-                onFilterChanged: _handleHistoryFilterChanged,
-                onRestoreConfig: _restoreConfig,
-                onDeleteRun: _deleteRun,
-                onClearAll: _clearAllHistory,
-              ),
-            ],
+      body: _selectedTabIndex == 0
+          ? _buildLineFollowerTab()
+          : SequenceEditorScreen(
+              robotService: _activeService,
+              isConnected: isConnected,
+            ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedTabIndex,
+        onDestinationSelected: (index) {
+          setState(() => _selectedTabIndex = index);
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.show_chart_rounded),
+            selectedIcon: Icon(Icons.show_chart_rounded, color: Color(0xFFD4AF37)),
+            label: 'Line Follower',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.account_tree_outlined),
+            selectedIcon: Icon(Icons.account_tree_rounded, color: Color(0xFF10B981)),
+            label: 'Sequence Editor',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLineFollowerTab() {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SensorsCard(
+              sensorOnLine: sensorOnLine,
+              sensorRawValues: sensorRawValues,
+              sensorEnabled: sensorEnabled,
+              showAnalog: showAnalogSensors,
+              isCalibrationMode: isCalibrationMode,
+              sensorThresholds: sensorThresholds,
+              lineError: lineError,
+              lineDetected: lineDetected,
+              onShowAnalogChanged: (value) {
+                setState(() => showAnalogSensors = value);
+              },
+              onCalibrationModeChanged: _handleCalibrationModeChanged,
+              onSensorThresholdPreview: _handleSensorThresholdPreview,
+              onSensorThresholdCommit: _handleSensorThresholdCommit,
+              onAllSensorThresholdCommit: _handleAllSensorThresholdCommit,
+              onSensorEnableChanged: _handleSensorEnableChanged,
+              onAllSensorsEnableChanged: _handleAllSensorsEnableChanged,
+              onSaveCalibration: _handleSaveCalibration,
+            ),
+            const SizedBox(height: 12),
+            ControlSummaryCard(
+              isRunning: isRunning,
+              trackFinished: trackFinished,
+              runtime: runtime,
+              autoStopOnFinish: autoStopOnFinish,
+              lineLostRecoveryEnabled: lineLostRecoveryEnabled,
+              onAutoStopChanged: _handleAutoStopChanged,
+              onLineLostRecoveryChanged: _handleLineLostRecoveryChanged,
+              onStartStop: _handleStartStop,
+            ),
+            const SizedBox(height: 12),
+            MappingControlsCard(
+              robotService: _activeService,
+              isConnected: isConnected,
+            ),
+            const SizedBox(height: 12),
+            PidCard(
+              pValue: kp,
+              iValue: ki,
+              dValue: kd,
+              onPChanged: _handlePChanged,
+              onIChanged: _handleIChanged,
+              onDChanged: _handleDChanged,
+              onSendAll: _handlePidSend,
+              onResetDefaults: _handleResetPidDefaults,
+            ),
+            const SizedBox(height: 12),
+            SpeedCard(
+              maxSpeedController: maxSpeedController,
+              baseSpeedController: baseSpeedController,
+              minSpeedController: minSpeedController,
+              invertSteering: invertSteering,
+              onInvertSteeringChanged: _handleInvertSteeringChanged,
+              onMaxSpeedSend: () {
+                final maxSpeed = maxSpeedController.text.trim();
+                _activeService?.sendCommand(
+                  '${AppConstants.cmdMaxSpeedPrefix}$maxSpeed',
+                );
+                final messenger = ScaffoldMessenger.of(context);
+                messenger.clearSnackBars();
+                messenger.showSnackBar(
+                  SnackBar(
+                    duration: const Duration(milliseconds: 1200),
+                    content: Text('Max speed set to $maxSpeed'),
+                  ),
+                );
+              },
+              onBaseSpeedSend: () {
+                final baseSpeed = baseSpeedController.text.trim();
+                _activeService?.sendCommand(
+                  '${AppConstants.cmdBaseSpeedPrefix}$baseSpeed',
+                );
+                final messenger = ScaffoldMessenger.of(context);
+                messenger.clearSnackBars();
+                messenger.showSnackBar(
+                  SnackBar(
+                    duration: const Duration(milliseconds: 1200),
+                    content: Text('Base speed set to $baseSpeed'),
+                  ),
+                );
+              },
+              onMinSpeedSend: _handleMinSpeedSend,
+              onResetDefaults: _handleResetSpeedThresholdDefaults,
+            ),
+            const SizedBox(height: 12),
+            HistoryCard(
+              history: _filteredHistory,
+              selectedFilter: _historyFilter,
+              onFilterChanged: _handleHistoryFilterChanged,
+              onRestoreConfig: _restoreConfig,
+              onDeleteRun: _deleteRun,
+              onClearAll: _clearAllHistory,
+            ),
+          ],
         ),
       ),
     );

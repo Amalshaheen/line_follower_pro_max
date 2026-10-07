@@ -27,16 +27,17 @@ class AppConstants {
   // ---------------------------------------------------------------------------
   // Default PID configuration values (matching hardware defaults in hardware_updated.ino)
   // ---------------------------------------------------------------------------
-  static const double defaultKp = 4.5;
+  static const double defaultKp = 2.5;
   static const double defaultKi = 0.0;
-  static const double defaultKd = 12.0;
+  static const double defaultKd = 0.08;
   static const double defaultPScale = 1.0;
   static const double defaultIScale = 1.0;
   static const double defaultDScale = 1.0;
 
   // Default speed and physical configuration
-  static const int defaultMaxSpeed = 255;
-  static const int defaultBaseSpeed = 110;
+  static const int defaultMaxSpeed = 120;
+  static const int defaultBaseSpeed = 70;
+  static const int defaultMapSpeed = 55; // Sector mapping run speed
   static const int defaultMinSpeed = 30; // BTS7960 deadband stiction compensation
   static const bool defaultInvertSteering = false;
   static const int defaultThreshold = 2000;
@@ -86,6 +87,19 @@ class AppConstants {
   static const String cmdSensorMaskPrefix = 'MASK=';
   static const String cmdQuerySensorMask = 'MASK?';
 
+  // --- Autonomous Sequence Execution Commands ---
+  static const String cmdSeqClear = 'SEQ,CLEAR';
+  static const String cmdSeqStart = 'SEQ,START';
+  static const String cmdSeqStop = 'SEQ,STOP';
+  static const String cmdSeqAddPrefix = 'SEQ,ADD,';
+
+  // --- Sector Mapping & Predictive Race Commands ---
+  static const String cmdMapStart = 'MAP,START';
+  static const String cmdMapFinish = 'MAP,FINISH';
+  static const String cmdRaceStart = 'RACE,START';
+  static const String cmdMapSpeedPrefix = 'MAP_SPEED=';
+  static const String cmdQueryMapSpeed = 'MAP_SPEED?';
+
   // ---------------------------------------------------------------------------
   // Response prefixes from hardware (bot → app)
   // Communication over BLE Nordic UART Service.
@@ -96,6 +110,7 @@ class AppConstants {
   static const String respTimePrefix = 'TIME=';
   static const String respThresholds = 'THRESHOLDS:';
   static const String respSensorMask = 'MASK:';
+  static const String respSeqDone = 'SEQ:DONE';
 
   // ---------------------------------------------------------------------------
   // UI strings
