@@ -692,14 +692,14 @@ TaskHandle_t controlTaskHandle = NULL;
 unsigned long lastDebugMs = 0;
 
 void runControlLoopStep(float dt) {
-  // 1. If actively braking, service the braking state machine and exit
+  // 1. ALWAYS read sensors every loop cycle so telemetry stays live in IDLE mode!
+  bool lineFound = readSensorArrayMetric();
+
+  // 2. If actively braking, service the braking state machine and exit
   if (activeBrakeState != BRAKE_INACTIVE) {
     updateBrakingStateMachine();
     return;
   }
-
-  // 2. Normal sensor read
-  bool lineFound = readSensorArrayMetric();
 
   // 3. If motors are disabled (STOP command or Emergency Button), engage active brake
   if (!motorsEnabled) {
