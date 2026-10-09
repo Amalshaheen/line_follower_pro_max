@@ -37,7 +37,6 @@ class AppConstants {
   // Default speed and physical configuration
   static const int defaultMaxSpeed = 120;
   static const int defaultBaseSpeed = 70;
-  static const int defaultMapSpeed = 55; // Sector mapping run speed
   static const int defaultMinSpeed = 30; // BTS7960 deadband stiction compensation
   static const bool defaultInvertSteering = false;
   static const int defaultThreshold = 2000;
@@ -48,9 +47,6 @@ class AppConstants {
       5.27,  15.58,  25.97,  36.47,  46.01,  52.52,
   ];
   static const double maxPhysicalErrorMm = 52.52;
-
-  // Odometry: (pi * 40mm) / 8 magnets = 15.708 mm per tick
-  static const double mmPerTick = 15.708;
 
   // PID scale options
   static const List<double> pidScaleOptions = [10.0, 1.0, 0.1, 0.01];
@@ -75,30 +71,12 @@ class AppConstants {
   static const String cmdBaseSpeedPrefix = 'BASE=';
   static const String cmdMinSpeedPrefix = 'MIN=';
   static const String cmdInvertSteeringPrefix = 'INV=';
-  static const String cmdCalibrateBlack = 'CAL=BLACK';
-  static const String cmdCalibrateWhite = 'CAL=WHITE';
-  static const String cmdQueryTime = 'TIME?';
+  static const String cmdCalibrateAuto = 'CALIB';
   static const String cmdQueryThresholds = 'THRESH?';
   static const String cmdThresholdAllPrefix = 'THRALL=';
   static const String cmdThresholdSinglePrefix = 'THR=';
-  static const String cmdAutoStopPrefix = 'AUTOSTOP=';
-  static const String cmdLineLostRecoveryPrefix = 'LINELOST=';
-  static const String cmdSensorSinglePrefix = 'SENS=';
   static const String cmdSensorMaskPrefix = 'MASK=';
   static const String cmdQuerySensorMask = 'MASK?';
-
-  // --- Autonomous Sequence Execution Commands ---
-  static const String cmdSeqClear = 'SEQ,CLEAR';
-  static const String cmdSeqStart = 'SEQ,START';
-  static const String cmdSeqStop = 'SEQ,STOP';
-  static const String cmdSeqAddPrefix = 'SEQ,ADD,';
-
-  // --- Sector Mapping & Predictive Race Commands ---
-  static const String cmdMapStart = 'MAP,START';
-  static const String cmdMapFinish = 'MAP,FINISH';
-  static const String cmdRaceStart = 'RACE,START';
-  static const String cmdMapSpeedPrefix = 'MAP_SPEED=';
-  static const String cmdQueryMapSpeed = 'MAP_SPEED?';
 
   // ---------------------------------------------------------------------------
   // Response prefixes from hardware (bot → app)
@@ -106,11 +84,8 @@ class AppConstants {
   // ---------------------------------------------------------------------------
   static const String respSensors = 'SENSORS:';
   static const String respAck = 'ACK:';
-  static const String respTrackFinished = 'TRACK_FINISHED';
-  static const String respTimePrefix = 'TIME=';
   static const String respThresholds = 'THRESHOLDS:';
   static const String respSensorMask = 'MASK:';
-  static const String respSeqDone = 'SEQ:DONE';
 
   // ---------------------------------------------------------------------------
   // UI strings

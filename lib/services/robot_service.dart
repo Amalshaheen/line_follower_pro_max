@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/robot_state.dart';
-import '../models/sequence_step.dart';
 
 /// Abstract base class for the robot communication service ([BleService]).
 ///
@@ -48,9 +47,6 @@ abstract class RobotService {
   /// Called when the connection drops unexpectedly.
   VoidCallback? get onDisconnected;
 
-  /// Stream firing when the hardware completes an autonomous motion sequence (`SEQ:DONE`).
-  Stream<void> get onSequenceDone;
-
   // ---------------------------------------------------------------------------
   // State
   // ---------------------------------------------------------------------------
@@ -72,9 +68,6 @@ abstract class RobotService {
   // ---------------------------------------------------------------------------
 
   /// Send a raw command string to the robot (enqueued).
-  ///
-  /// Supports concise tuning commands (`P1.25`, `M255`, `S`) and compound
-  /// protocol commands (`KP=30.00`, `RUN=1`, `THRALL=2000`).
   bool sendCommand(String command);
 
   /// Send a command asynchronously, waiting for an optional ACK prefix or safety throttle.
@@ -109,25 +102,6 @@ abstract class RobotService {
   /// Invert steering polarity for reversed sensor array or motor wiring.
   bool sendInvertSteering(bool invert);
 
-  // ---------------------------------------------------------------------------
-  // Autonomous Motion Queue & Sector Mapping
-  // ---------------------------------------------------------------------------
-
-  /// Uploads and initiates a sequential list of motion commands with safe throttling.
-  Future<void> sendSequence(List<SequenceStep> steps);
-
-  /// Immediately aborts execution of the current motion sequence.
-  bool stopSequence();
-
-  /// Starts line-following in sector/segment mapping mode (`MAP,START`).
-  bool startMapping();
-
-  /// Concludes mapping mode and computes velocity profiles (`MAP,FINISH`).
-  bool finishMapping();
-
-  /// Initiates predictive race mode using recorded track map (`RACE,START`).
-  bool startRace();
-
-  /// Sets independent sector mapping speed (`MAP_SPEED=<val>`).
-  bool sendMapSpeed(int speed);
+  /// Triggers hardware auto-calibration routine (`CALIB`).
+  bool triggerAutoCalibration();
 }

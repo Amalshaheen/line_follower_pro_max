@@ -2,16 +2,15 @@ import 'package:flutter/material.dart';
 import 'info_tile.dart';
 import '../constants/app_constants.dart';
 
-/// Card widget for control summary showing start/stop and runtime info.
+/// Primary Action Card for robot control: Start/Emergency Stop toggle, run duration timer,
+/// and Calibrate Sensors trigger.
 class ControlSummaryCard extends StatelessWidget {
   final bool isRunning;
   final bool trackFinished;
   final int runtime; // Runtime in milliseconds
   final VoidCallback onStartStop;
-  final bool autoStopOnFinish;
-  final bool lineLostRecoveryEnabled;
-  final ValueChanged<bool>? onAutoStopChanged;
-  final ValueChanged<bool>? onLineLostRecoveryChanged;
+  final VoidCallback? onCalibrate;
+  final bool isConnected;
 
   const ControlSummaryCard({
     super.key,
@@ -19,10 +18,8 @@ class ControlSummaryCard extends StatelessWidget {
     this.trackFinished = false,
     this.runtime = 0,
     required this.onStartStop,
-    this.autoStopOnFinish = true,
-    this.lineLostRecoveryEnabled = true,
-    this.onAutoStopChanged,
-    this.onLineLostRecoveryChanged,
+    this.onCalibrate,
+    this.isConnected = true,
   });
 
   /// Format runtime as mm:ss.ms
@@ -37,11 +34,13 @@ class ControlSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           children: [
-            // Main controls row
+            // Main Start/Stop and Runtime Row
             IntrinsicHeight(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -50,26 +49,27 @@ class ControlSummaryCard extends StatelessWidget {
                     flex: 2,
                     child: FilledButton.icon(
                       style: FilledButton.styleFrom(
-                        backgroundColor: isRunning ? Colors.red : Colors.green,
+                        backgroundColor: isRunning ? const Color(0xFFEF4444) : const Color(0xFF10B981),
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(14),
                         ),
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         textStyle: const TextStyle(
-                          fontSize: 18,
+                          fontSize: 17,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       onPressed: onStartStop,
                       icon: Icon(
                         isRunning
-                            ? Icons.stop_rounded
+                            ? Icons.stop_circle_rounded
                             : Icons.play_arrow_rounded,
+                        size: 26,
                       ),
                       label: Text(
                         isRunning
-                            ? AppConstants.stopButtonLabel
+                            ? 'EMERGENCY STOP'
                             : AppConstants.startButtonLabel,
                       ),
                     ),
@@ -77,73 +77,38 @@ class ControlSummaryCard extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     flex: 1,
-                    child: Column(
-                      children: [
-                        InfoTile(
-                          label: 'Lap time',
-                          value: _formatRuntime(runtime),
-                          highlight: trackFinished,
-                        ),
-                        if (trackFinished)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 4),
-                            child: Text(
-                              'Track Finished!',
-                              style: TextStyle(
-                                color: Colors.green,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                      ],
+                    child: InfoTile(
+                      label: 'Run time',
+                      value: _formatRuntime(runtime),
+                      highlight: isRunning,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      const Flexible(
-                        child: Text(
-                          'Auto stop on finish',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const Spacer(),
-                      Switch(
-                        value: autoStopOnFinish,
-                        onChanged: onAutoStopChanged,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ],
+            if (onCalibrate != null) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    side: BorderSide(
+                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  onPressed: isConnected ? onCalibrate : null,
+                  icon: const Icon(Icons.auto_fix_high_rounded, size: 20),
+                  label: const Text(
+                    'Calibrate Sensors (Baseline)',
+                    style: TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Row(
-                    children: [
-                      const Flexible(
-                        child: Text(
-                          'Line-lost return',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const Spacer(),
-                      Switch(
-                        value: lineLostRecoveryEnabled,
-                        onChanged: onLineLostRecoveryChanged,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ],
         ),
       ),

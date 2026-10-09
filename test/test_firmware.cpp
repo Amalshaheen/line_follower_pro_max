@@ -64,7 +64,7 @@ struct String : public std::string {
     try { return std::stof(*this); } catch (...) { return 0.0f; }
   }
   void toUpperCase() {
-    for (auto &c : *this) c = toupper((unsigned char)c);
+    for (auto &c : *this) c = (char)toupper((unsigned char)c);
   }
 };
 
@@ -85,38 +85,66 @@ bool motorsEnabled = false;
 float Kp = 2.5f, Ki = 0.0f, Kd = 0.08f;
 int baseSpeed = 70, maxSpeed = 120, minSpeed = 30;
 bool invertSteering = false;
-int mapSegmentCount = 0;
 
 enum RobotMode : uint8_t {
   MODE_IDLE = 0,
-  MODE_LINE_FOLLOW_REACTIVE,
-  MODE_LINE_FOLLOW_MAP,
-  MODE_LINE_FOLLOW_RACE,
-  MODE_SEQUENCE_RUN
+  MODE_LINE_FOLLOW_REACTIVE = 1
 } currentMode = MODE_IDLE;
 
-enum StepType : uint8_t {
-  STEP_NONE = 0, STEP_MOVE_FWD, STEP_MOVE_REV, STEP_TURN_LEFT, STEP_TURN_RIGHT, STEP_PAUSE
+enum BrakeState : uint8_t {
+  BRAKE_INACTIVE = 0,
+  BRAKE_PLUGGING,   // Active reverse counter-torque burst
+  BRAKE_LOCKED      // Low-side MOSFET clamp to ground
 };
-struct SequenceStep { StepType type; float param; } sequenceQueue[32];
-uint8_t seqHead = 0, seqTail = 0, seqCount = 0;
-enum SeqState : uint8_t { SEQ_STATE_IDLE = 0, SEQ_STATE_START_STEP, SEQ_STATE_EXECUTING, SEQ_STATE_BRAKING } seqState = SEQ_STATE_IDLE;
 
-bool enqueueStep(StepType type, float param) {
-  if (seqCount >= 32) return false;
-  sequenceQueue[seqTail].type = type;
-  sequenceQueue[seqTail].param = param;
-  seqTail = (seqTail + 1) % 32;
-  seqCount++;
-  return true;
+BrakeState activeBrakeState = BRAKE_LOCKED;
+unsigned long brakeStartTimeMicros = 0;
+const unsigned long PLUG_BRAKE_DURATION_MICROS = 25000;
+const int PLUG_BRAKE_PWM = 180;
+int dynamicBrakeCount = 0;
+
+void dynamicBrake() {
+  dynamicBrakeCount++;
 }
-void clearSequenceQueue() { seqHead = seqTail = seqCount = 0; seqState = SEQ_STATE_IDLE; }
+
+void triggerActiveBrake() {
+  if (activeBrakeState == BRAKE_INACTIVE) {
+    activeBrakeState = BRAKE_PLUGGING;
+    brakeStartTimeMicros = 100000; // Simulated timestamp
+  }
+}
+
+void releaseBrake() {
+  activeBrakeState = BRAKE_INACTIVE;
+}
+
+void updateBrakingStateMachine(unsigned long now) {
+  if (activeBrakeState == BRAKE_INACTIVE) return;
+
+  if (activeBrakeState == BRAKE_PLUGGING) {
+    if (now - brakeStartTimeMicros >= PLUG_BRAKE_DURATION_MICROS) {
+      dynamicBrake();
+      activeBrakeState = BRAKE_LOCKED;
+    }
+  } else if (activeBrakeState == BRAKE_LOCKED) {
+    dynamicBrake();
+  }
+}
+
 void stopMotors() {}
 void resetPID() {}
-void clearTrackMap() {}
-void finalizeTrackMap() {}
-void calculateSpeedProfiles() {}
-uint32_t encLeftTicks = 0, encRightTicks = 0, raceSegIndex = 0, raceSegStartTick = 0;
+
+void runAutoCalibration() {
+  sendBleMessage("ACK:CALIB\n");
+  String payload = "THRESHOLDS:";
+  for (int i = 0; i < 12; i++) {
+    sensorThresholds[i] = (int)defaultThreshold;
+    payload += String(sensorThresholds[i]);
+    if (i < 11) payload += ",";
+  }
+  payload += "\n";
+  sendBleMessage(payload);
+}
 
 void sendThresholdsToApp() {
   String payload = "THRESHOLDS:";
@@ -178,9 +206,11 @@ void handleCommand(String rx) {
     motorsEnabled = !motorsEnabled;
     if (!motorsEnabled) {
       currentMode = MODE_IDLE;
-      stopMotors();
+      triggerActiveBrake();
+      resetPID();
       sendBleMessage("ACK:RUN=0\n");
     } else {
+      releaseBrake();
       currentMode = MODE_LINE_FOLLOW_REACTIVE;
       resetPID();
       sendBleMessage("ACK:RUN=1\n");
@@ -189,6 +219,7 @@ void handleCommand(String rx) {
   }
 
   if (rx == "RUN=1" || rx == "ROBOT,START") { 
+    releaseBrake();
     currentMode = MODE_LINE_FOLLOW_REACTIVE;
     motorsEnabled = true; 
     resetPID();
@@ -199,70 +230,17 @@ void handleCommand(String rx) {
   if (rx == "RUN=0" || rx == "ROBOT,STOP") { 
     currentMode = MODE_IDLE;
     motorsEnabled = false; 
-    stopMotors(); 
+    triggerActiveBrake();
+    resetPID();
     sendBleMessage("ACK:RUN=0\n");
     return; 
   }
 
-  // --- SEQUENCE QUEUE COMMANDS ---
-  if (rx == "SEQ,CLEAR") {
-    clearSequenceQueue();
-    sendBleMessage("ACK:SEQ_CLEAR\n");
-    return;
-  }
-
-  if (rx == "SEQ,START") {
-    if (seqCount > 0) {
-      currentMode = MODE_SEQUENCE_RUN;
-      seqState = SEQ_STATE_START_STEP;
-      motorsEnabled = true;
-      sendBleMessage("ACK:SEQ_START\n");
-    } else {
-      sendBleMessage("ERR:QUEUE_EMPTY\n");
-    }
-    return;
-  }
-
-  if (rx == "SEQ,STOP") {
-    currentMode = MODE_IDLE;
-    seqState = SEQ_STATE_IDLE;
-    motorsEnabled = false;
-    stopMotors();
-    sendBleMessage("ACK:SEQ_STOP\n");
-    return;
-  }
-
-  // --- SECTOR MAPPING & RACE RUNS ---
-  if (rx == "MAP,START") {
-    clearTrackMap();
-    resetPID();
-    currentMode = MODE_LINE_FOLLOW_MAP;
-    motorsEnabled = true;
-    sendBleMessage("ACK:MAP_START\n");
-    return;
-  }
-
-  if (rx == "MAP,FINISH") {
-    finalizeTrackMap();
-    calculateSpeedProfiles();
+  if (rx == "CALIB" || rx == "CAL=AUTO") {
     currentMode = MODE_IDLE;
     motorsEnabled = false;
-    stopMotors();
-    sendBleMessage("ACK:MAP_FINISH=" + String(mapSegmentCount) + "\n");
-    return;
-  }
-
-  if (rx == "RACE,START") {
-    if (mapSegmentCount > 0) {
-      resetPID();
-      currentMode = MODE_LINE_FOLLOW_RACE;
-      raceSegIndex = 0;
-      raceSegStartTick = (encLeftTicks + encRightTicks) / 2;
-      motorsEnabled = true;
-      sendBleMessage("ACK:RACE_START\n");
-    } else {
-      sendBleMessage("ERR:NO_MAP\n");
-    }
+    triggerActiveBrake();
+    runAutoCalibration();
     return;
   }
 
@@ -283,7 +261,7 @@ void handleCommand(String rx) {
     return;
   }
 
-  // 3. Explicit Multi-Character Tokens (checked BEFORE single-letter aliases)
+  // 3. Explicit Multi-Character Assignments
   if (rx.startsWith("THRALL=")) {
     float val = rx.substring(7).toFloat();
     if (val <= 255.0f && val > 0.0f) val *= 16.0f;
@@ -300,7 +278,7 @@ void handleCommand(String rx) {
     if (comma != -1) {
       int idx = rx.substring(4, comma).toInt();
       float val = rx.substring(comma + 1).toFloat();
-      if (val <= 255.0f && val > 0.0f) val *= 16.0f; // Scale 8-bit to 12-bit
+      if (val <= 255.0f && val > 0.0f) val *= 16.0f;
       if (idx >= 0 && idx < 12) {
         sensorThresholds[idx] = (int)constrain(val, 50.0f, 4095.0f);
         sendBleMessage("ACK:THR=" + String(idx) + "," + String(sensorThresholds[idx]) + "\n");
@@ -361,42 +339,7 @@ void handleCommand(String rx) {
     return;
   }
 
-  if (rx.startsWith("SEQ,ADD,")) {
-    // Format: SEQ,ADD,<ACTION>,<PARAM>
-    int firstComma  = rx.indexOf(',');
-    int secondComma = rx.indexOf(',', firstComma + 1);
-    int thirdComma  = rx.indexOf(',', secondComma + 1);
-
-    if (secondComma != -1 && thirdComma != -1) {
-      String action = rx.substring(secondComma + 1, thirdComma);
-      action.toUpperCase();
-      float param = rx.substring(thirdComma + 1).toFloat();
-      bool success = false;
-
-      if (action == "FWD") {
-        success = enqueueStep(STEP_MOVE_FWD, param);
-      } else if (action == "REV") {
-        success = enqueueStep(STEP_MOVE_REV, param);
-      } else if (action == "LEFT") {
-        success = enqueueStep(STEP_TURN_LEFT, param);
-      } else if (action == "RIGHT") {
-        success = enqueueStep(STEP_TURN_RIGHT, param);
-      } else if (action == "WAIT" || action == "PAUSE") {
-        success = enqueueStep(STEP_PAUSE, param);
-      }
-
-      if (success) {
-        sendBleMessage("ACK:SEQ_ADD=" + action + "," + String(param, 1) + "\n");
-      } else {
-        sendBleMessage("ERR:QUEUE_FULL\n");
-      }
-      return;
-    }
-    sendBleMessage("ERR:INVALID_PARAM=SEQ,ADD\n");
-    return;
-  }
-
-  // 4. Guarded Single-Character Aliases (MUST be followed immediately by numeric digits/signs)
+  // 4. Guarded Single-Character Aliases
   if (rx.length() >= 2 && rx[0] == 'P' && isNumericStart(rx[1])) {
     Kp = rx.substring(1).toFloat();
     sendBleMessage("ACK:KP=" + String(Kp, 2) + "\n");
@@ -443,9 +386,9 @@ void handleCommand(String rx) {
 }
 
 int main() {
-  for (int i = 0; i < 12; i++) sensorThresholds[i] = 2000;
+  std::cout << "--- Running Purged Optical Firmware Unit Tests ---" << std::endl;
 
-  std::cout << "--- Running Firmware Unit Tests ---" << std::endl;
+  for (int i = 0; i < 12; i++) sensorThresholds[i] = 2000;
 
   // Test 1: THR=2,1850 updates ONLY sensor 2
   capturedMessages.clear();
@@ -473,37 +416,35 @@ int main() {
   assert(capturedMessages[0] == "ACK:THRALL=2000\n");
   std::cout << "[PASS] Test 3: T2000 updates all 12 sensors" << std::endl;
 
-  // Test 4: TIME? does NOT trigger T
+  // Test 4: TIME? does NOT trigger T, returns ERR
   capturedMessages.clear();
   handleCommand("TIME?");
   assert(capturedMessages.size() == 1);
   assert(capturedMessages[0] == "ERR:UNKNOWN_CMD=TIME?\n");
-  std::cout << "[PASS] Test 4: TIME? does NOT trigger T" << std::endl;
+  std::cout << "[PASS] Test 4: TIME? returns ERR:UNKNOWN_CMD" << std::endl;
 
-  // Test 5: SEQ,ADD,FWD,10 does NOT trigger S
+  // Test 5: Removed SEQ commands return ERR:UNKNOWN_CMD
   capturedMessages.clear();
-  clearSequenceQueue();
-  handleCommand("SEQ,ADD,FWD,10");
-  assert(seqCount == 1);
-  assert(sequenceQueue[0].type == STEP_MOVE_FWD);
-  assert(std::fabs(sequenceQueue[0].param - 10.0f) < 0.001f);
+  handleCommand("SEQ,START");
   assert(capturedMessages.size() == 1);
-  assert(capturedMessages[0] == "ACK:SEQ_ADD=FWD,10.0\n");
-  std::cout << "[PASS] Test 5: SEQ,ADD,FWD,10 correctly queued without triggering S" << std::endl;
+  assert(capturedMessages[0] == "ERR:UNKNOWN_CMD=SEQ,START\n");
+  std::cout << "[PASS] Test 5: SEQ,START returns ERR:UNKNOWN_CMD" << std::endl;
 
   // Test 6: S toggles run/stop
   capturedMessages.clear();
   motorsEnabled = false;
   handleCommand("S");
   assert(motorsEnabled == true);
+  assert(currentMode == MODE_LINE_FOLLOW_REACTIVE);
   assert(capturedMessages[0] == "ACK:RUN=1\n");
   capturedMessages.clear();
   handleCommand("S");
   assert(motorsEnabled == false);
+  assert(currentMode == MODE_IDLE);
   assert(capturedMessages[0] == "ACK:RUN=0\n");
   std::cout << "[PASS] Test 6: S toggles run/stop" << std::endl;
 
-  // Test 7: SENS? and MASK? do NOT trigger S
+  // Test 7: SENS? and MASK? query without triggering S
   capturedMessages.clear();
   handleCommand("SENS?");
   assert(motorsEnabled == false);
@@ -540,6 +481,59 @@ int main() {
   assert(capturedMessages[0].rfind("ACK:CONFIG=KP:", 0) == 0);
   std::cout << "[PASS] Test 10: CONFIG? query responded with all parameters" << std::endl;
 
-  std::cout << "ALL 10 TESTS PASSED SUCCESSFULLY!" << std::endl;
+  // Test 11: Auto-calibration command
+  capturedMessages.clear();
+  handleCommand("CALIB");
+  assert(capturedMessages.size() == 2);
+  assert(capturedMessages[0] == "ACK:CALIB\n");
+  assert(capturedMessages[1].rfind("THRESHOLDS:", 0) == 0);
+  std::cout << "[PASS] Test 11: CALIB triggers auto-calibration response" << std::endl;
+
+  // Test 12: Active braking state machine transitions
+  activeBrakeState = BRAKE_LOCKED;
+  motorsEnabled = false;
+  dynamicBrakeCount = 0;
+
+  // Start robot
+  handleCommand("RUN=1");
+  assert(motorsEnabled == true);
+  assert(activeBrakeState == BRAKE_INACTIVE);
+
+  // Stop robot -> should trigger active plugging burst
+  handleCommand("RUN=0");
+  assert(motorsEnabled == false);
+  assert(activeBrakeState == BRAKE_PLUGGING);
+  assert(brakeStartTimeMicros == 100000);
+
+  // Mid-burst update (< 25 ms): should remain plugging
+  updateBrakingStateMachine(110000); // 10 ms
+  assert(activeBrakeState == BRAKE_PLUGGING);
+
+  // Expiration update (>= 25 ms): should transition to dynamic brake lock
+  updateBrakingStateMachine(125000); // 25 ms
+  assert(activeBrakeState == BRAKE_LOCKED);
+  assert(dynamicBrakeCount == 1);
+
+  // Subsequent triggerActiveBrake while already LOCKED must NOT refire plugging
+  triggerActiveBrake();
+  assert(activeBrakeState == BRAKE_LOCKED);
+
+  // Subsequent update while LOCKED maintains dynamic brake
+  updateBrakingStateMachine(130000);
+  assert(activeBrakeState == BRAKE_LOCKED);
+  assert(dynamicBrakeCount == 2);
+
+  // Toggle S restarts robot
+  handleCommand("S");
+  assert(motorsEnabled == true);
+  assert(activeBrakeState == BRAKE_INACTIVE);
+
+  // Toggle S stops robot into plugging burst
+  handleCommand("S");
+  assert(motorsEnabled == false);
+  assert(activeBrakeState == BRAKE_PLUGGING);
+  std::cout << "[PASS] Test 12: Non-blocking active braking state engine transitions verified" << std::endl;
+
+  std::cout << "ALL 12 TESTS PASSED SUCCESSFULLY!" << std::endl;
   return 0;
 }

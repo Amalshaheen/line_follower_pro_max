@@ -53,14 +53,14 @@ void main() {
         onAckReceived: (cmd, val) => acks[cmd] = val,
       );
 
-      // Deliver fragmented chunk 1: "ACK:SEQ_A"
-      bleService.handleIncomingDataForTesting(utf8.encode('ACK:SEQ_A'));
+      // Deliver fragmented chunk 1: "ACK:BA"
+      bleService.handleIncomingDataForTesting(utf8.encode('ACK:BA'));
       expect(acks.isEmpty, isTrue);
 
-      // Deliver fragmented chunk 2: "DD=FWD,10.0\nACK:K"
-      bleService.handleIncomingDataForTesting(utf8.encode('DD=FWD,10.0\nACK:K'));
-      expect(acks.containsKey('SEQ_ADD'), isTrue);
-      expect(acks['SEQ_ADD'], equals('FWD,10.0'));
+      // Deliver fragmented chunk 2: "SE=85\nACK:K"
+      bleService.handleIncomingDataForTesting(utf8.encode('SE=85\nACK:K'));
+      expect(acks.containsKey('BASE'), isTrue);
+      expect(acks['BASE'], equals('85'));
       expect(acks.containsKey('KP'), isFalse);
 
       // Deliver fragmented chunk 3: "P=2.50\n"
@@ -125,7 +125,7 @@ void main() {
       expect(updatedThresholds![11], equals(2000));
     });
 
-    test('ACK:MAP_SPEED correctly triggers onAckReceived and sendMapSpeed formats command properly', () {
+    test('ACK:CALIB correctly triggers onAckReceived for auto-calibration confirmation', () {
       String? ackCommand;
       String? ackValue;
 
@@ -136,11 +136,11 @@ void main() {
         },
       );
 
-      final mapSpeedAck = utf8.encode('ACK:MAP_SPEED=65\n');
-      bleService.handleIncomingDataForTesting(mapSpeedAck);
+      final calibAck = utf8.encode('ACK:CALIB\n');
+      bleService.handleIncomingDataForTesting(calibAck);
 
-      expect(ackCommand, equals('MAP_SPEED'));
-      expect(ackValue, equals('65'));
+      expect(ackCommand, equals('CALIB'));
+      expect(ackValue, equals(''));
     });
   });
 }

@@ -8,9 +8,9 @@ import '../models/index.dart';
 import '../services/index.dart';
 import 'bluetooth_settings_page.dart';
 import 'settings_page.dart';
-import 'sequence_editor_screen.dart';
 
-/// Main dashboard screen for controlling the line follower robot.
+/// Main streamlined dashboard screen for pure optical line-following,
+/// real-time telemetry, and PID/drive parameter tuning.
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
@@ -19,9 +19,7 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  int _selectedTabIndex = 0;
   bool isRunning = false;
-  bool trackFinished = false;
   int runtime = 0;
   late List<bool> sensorOnLine = List<bool>.filled(
     AppConstants.sensorCount,
@@ -31,10 +29,8 @@ class _DashboardPageState extends State<DashboardPage> {
     AppConstants.sensorCount,
     0,
   );
-  bool showAnalogSensors = false;
-  bool isCalibrationMode = false;
-  bool autoStopOnFinish = true;
-  bool lineLostRecoveryEnabled = true;
+  bool showAnalogSensors = true;
+  bool isCalibrationMode = true;
   double lineError = 0.0;
   bool lineDetected = true;
   DateTime? _currentRunStartedAt;
@@ -71,11 +67,8 @@ class _DashboardPageState extends State<DashboardPage> {
   final HistoryService _historyService = HistoryService();
   final SettingsService _settingsService = SettingsService();
   AppSettings _defaultSettings = AppSettings.defaults();
-  List<PidRunHistory> history = [];
-  RunCaptureType? _historyFilter;
 
-  // ── Connection state ───────────────────────────────────────────────────────
-  /// The active BLE service.
+  // Connection state
   BleService? _bleService;
   RobotService? get _activeService => _bleService;
 
@@ -84,7 +77,7 @@ class _DashboardPageState extends State<DashboardPage> {
   bool isConnecting = false;
   String btStatus = 'Disconnected';
 
-  // BLE
+  // BLE Scan
   List<ScanResult> scanResults = [];
   ScanResult? selectedScanResult;
   bool isScanning = false;
@@ -95,7 +88,6 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     _initFromSettings();
-    _loadHistory();
   }
 
   // ---------------------------------------------------------------------------
@@ -134,7 +126,6 @@ class _DashboardPageState extends State<DashboardPage> {
       onDataReceived: _onDataReceived,
       onSensorDataReceived: _onSensorDataReceived,
       onTelemetryReceived: _onTelemetryReceived,
-      onTrackFinished: _onTrackFinished,
       onAckReceived: _onAckReceived,
       onThresholdsReceived: _onThresholdsReceived,
       onConfigReceived: _onConfigReceived,
@@ -146,7 +137,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // Shared service callbacks
+  // Service Callbacks
   // ---------------------------------------------------------------------------
 
   void _onDataReceived(String line) {
@@ -154,7 +145,6 @@ class _DashboardPageState extends State<DashboardPage> {
     setState(() {
       if (line == 'Robot Started') {
         isRunning = true;
-        trackFinished = false;
         runtime = 0;
         _currentRunStartedAt = DateTime.now();
         _currentRunSaved = false;
@@ -191,21 +181,6 @@ class _DashboardPageState extends State<DashboardPage> {
     });
   }
 
-  void _onTrackFinished(int runtimeMs) {
-    if (!mounted) return;
-    setState(() {
-      trackFinished = true;
-      if (autoStopOnFinish) isRunning = false;
-      if (runtimeMs > 0) runtime = runtimeMs;
-    });
-    if (runtime == 0) {
-      _activeService?.sendCommand(AppConstants.cmdQueryTime);
-    } else if (!_currentRunSaved) {
-      _currentRunSaved = true;
-      _saveRunToHistory(runtimeMs, captureType: RunCaptureType.pathFinished);
-    }
-  }
-
   void _onAckReceived(String command, String value) {
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -216,7 +191,7 @@ class _DashboardPageState extends State<DashboardPage> {
       if (spd != null) baseSpeedController.text = value;
       messenger.showSnackBar(
         SnackBar(
-          duration: const Duration(milliseconds: 1200),
+          duration: const Duration(milliseconds: 1000),
           content: Text('Base speed confirmed: $value'),
         ),
       );
@@ -225,7 +200,7 @@ class _DashboardPageState extends State<DashboardPage> {
       if (spd != null) maxSpeedController.text = value;
       messenger.showSnackBar(
         SnackBar(
-          duration: const Duration(milliseconds: 1200),
+          duration: const Duration(milliseconds: 1000),
           content: Text('Max speed confirmed: $value'),
         ),
       );
@@ -234,7 +209,7 @@ class _DashboardPageState extends State<DashboardPage> {
       if (spd != null) minSpeedController.text = value;
       messenger.showSnackBar(
         SnackBar(
-          duration: const Duration(milliseconds: 1200),
+          duration: const Duration(milliseconds: 1000),
           content: Text('Min speed confirmed: $value'),
         ),
       );
@@ -249,6 +224,16 @@ class _DashboardPageState extends State<DashboardPage> {
       if (parsed != null) setState(() => kd = parsed);
     } else if (command == 'INV') {
       setState(() => invertSteering = (value == '1'));
+    } else if (command == 'CALIB') {
+      messenger.showSnackBar(
+        const SnackBar(
+          duration: Duration(milliseconds: 1500),
+          backgroundColor: Color(0xFF10B981),
+          content: Text('✅ Optical sensors calibrated successfully!'),
+        ),
+      );
+    } else if (command == 'RUN') {
+      setState(() => isRunning = (value == '1'));
     }
   }
 
@@ -272,7 +257,7 @@ class _DashboardPageState extends State<DashboardPage> {
       invertSteering = hwInv;
     });
     debugPrint(
-      '✅ [SYNC] Hardware config synchronized: P=$hwKp, I=$hwKi, D=$hwKd, Base=$hwBase, Max=$hwMax, Min=$hwMin, Inv=$hwInv',
+      '✅ [SYNC] Hardware config reconciled: P=$hwKp, I=$hwKi, D=$hwKd, Base=$hwBase, Max=$hwMax, Min=$hwMin, Inv=$hwInv',
     );
   }
 
@@ -290,11 +275,12 @@ class _DashboardPageState extends State<DashboardPage> {
     setState(() {
       isConnected = false;
       btStatus = 'Disconnected';
+      isRunning = false;
     });
   }
 
   // ---------------------------------------------------------------------------
-  // Mode switching
+  // BLE Management
   // ---------------------------------------------------------------------------
 
   void _handleDeviceNameChanged(String name) {
@@ -307,12 +293,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // BLE helpers
-  // ---------------------------------------------------------------------------
-
   void _startBleScan() {
-    // Ensure BLE adapter is on before scanning
     final stream = _bleService!.startScanAll(
       timeout: const Duration(seconds: 10),
     );
@@ -343,8 +324,7 @@ class _DashboardPageState extends State<DashboardPage> {
     setState(() => isConnecting = true);
     await _bleService!.stopScan();
 
-    final success =
-        await _bleService!.connect(selectedScanResult!.device);
+    final success = await _bleService!.connect(selectedScanResult!.device);
 
     if (mounted) {
       setState(() {
@@ -354,7 +334,7 @@ class _DashboardPageState extends State<DashboardPage> {
           final name = selectedScanResult!.device.platformName.isNotEmpty
               ? selectedScanResult!.device.platformName
               : selectedScanResult!.device.remoteId.str;
-          btStatus = 'Connected to $name (BLE)';
+          btStatus = 'Connected to $name';
           _postConnect();
         } else {
           btStatus = 'BLE connection failed';
@@ -363,33 +343,26 @@ class _DashboardPageState extends State<DashboardPage> {
       if (success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('BLE connected successfully'),
+            content: Text('Connected to robot over BLE'),
             duration: Duration(milliseconds: 800),
           ),
         );
-        await Future.delayed(const Duration(milliseconds: 500));
+        await Future.delayed(const Duration(milliseconds: 400));
         if (mounted) Navigator.of(context).pop();
       }
     }
     return success;
   }
 
-  // ---------------------------------------------------------------------------
-  // Shared connect/disconnect
-  // ---------------------------------------------------------------------------
-
   void _postConnect() {
-    _activeService?.sendCommand(AppConstants.cmdQueryThresholds);
-    _activeService?.sendCommand(AppConstants.cmdQuerySensorMask);
+    _activeService?.queryHardwareState();
     final minSpeed =
         int.tryParse(minSpeedController.text) ?? AppConstants.defaultMinSpeed;
     _activeService?.sendMinSpeed(minSpeed);
     _activeService?.sendInvertSteering(invertSteering);
   }
 
-  Future<bool> _connectToDevice() async {
-    return await _connectBle();
-  }
+  Future<bool> _connectToDevice() async => await _connectBle();
 
   Future<void> _disconnectDevice() async {
     await _bleService?.disconnect();
@@ -401,10 +374,6 @@ class _DashboardPageState extends State<DashboardPage> {
       });
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Navigation
-  // ---------------------------------------------------------------------------
 
   void _navigateToBluetoothSettings() {
     Navigator.push(
@@ -428,7 +397,11 @@ class _DashboardPageState extends State<DashboardPage> {
           onStartBleScan: _startBleScan,
         ),
       ),
-    ).then((_) => _updateConnectionStatus());
+    ).then((_) {
+      if (_activeService?.isConnected == true && mounted) {
+        setState(() => isConnected = true);
+      }
+    });
   }
 
   void _navigateToSettingsPage() {
@@ -440,25 +413,9 @@ class _DashboardPageState extends State<DashboardPage> {
     ).then((changed) {
       if (changed == true) {
         _loadDefaultSettings();
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Defaults saved. Use reset buttons to apply.'),
-          ),
-        );
       }
     });
   }
-
-  void _updateConnectionStatus() {
-    if (_activeService?.isConnected == true && mounted) {
-      setState(() => isConnected = true);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Settings & history
-  // ---------------------------------------------------------------------------
 
   Future<void> _loadDefaultSettings() async {
     final loaded = await _settingsService.getSettings();
@@ -469,75 +426,8 @@ class _DashboardPageState extends State<DashboardPage> {
     });
   }
 
-  Future<void> _loadHistory() async {
-    final loadedHistory = await _historyService.getHistory();
-    if (mounted) setState(() => history = loadedHistory);
-  }
-
-  List<PidRunHistory> get _filteredHistory {
-    final filter = _historyFilter;
-    if (filter == null) return history;
-    return history.where((run) => run.captureType == filter).toList();
-  }
-
-  void _handleHistoryFilterChanged(RunCaptureType? filter) {
-    setState(() => _historyFilter = filter);
-  }
-
-  Future<void> _saveRunToHistory(
-    int runtimeMs, {
-    required RunCaptureType captureType,
-  }) async {
-    final run = PidRunHistory.create(
-      runtimeMs: runtimeMs,
-      captureType: captureType,
-      kp: kp,
-      ki: ki,
-      kd: kd,
-      maxSpeed: int.tryParse(maxSpeedController.text) ?? AppConstants.defaultMaxSpeed,
-      baseSpeed: int.tryParse(baseSpeedController.text) ?? AppConstants.defaultBaseSpeed,
-      minSpeed: int.tryParse(minSpeedController.text) ?? AppConstants.defaultMinSpeed,
-    );
-    await _historyService.addRun(run);
-    await _loadHistory();
-  }
-
-  void _restoreConfig(PidRunHistory run) {
-    setState(() {
-      kp = run.kp;
-      ki = run.ki;
-      kd = run.kd;
-      maxSpeedController.text = run.maxSpeed.toString();
-      baseSpeedController.text = run.baseSpeed.toString();
-      minSpeedController.text = run.minSpeed.toString();
-    });
-    _activeService?.sendCommand('${AppConstants.cmdKpPrefix}${run.kp.toStringAsFixed(2)}');
-    _activeService?.sendCommand('${AppConstants.cmdKiPrefix}${run.ki.toStringAsFixed(2)}');
-    _activeService?.sendCommand('${AppConstants.cmdKdPrefix}${run.kd.toStringAsFixed(2)}');
-    _activeService?.sendCommand('${AppConstants.cmdMaxSpeedPrefix}${run.maxSpeed}');
-    _activeService?.sendCommand('${AppConstants.cmdBaseSpeedPrefix}${run.baseSpeed}');
-    _activeService?.sendMinSpeed(run.minSpeed);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Configuration restored: ${run.pidSummary}'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
-  Future<void> _deleteRun(String id) async {
-    await _historyService.removeRun(id);
-    await _loadHistory();
-  }
-
-  Future<void> _clearAllHistory() async {
-    await _historyService.clearHistory();
-    await _loadHistory();
-  }
-
   // ---------------------------------------------------------------------------
-  // Robot control
+  // Robot Control Actions
   // ---------------------------------------------------------------------------
 
   int _currentElapsedRuntimeMs() {
@@ -551,7 +441,6 @@ class _DashboardPageState extends State<DashboardPage> {
     if (!isRunning) {
       setState(() {
         isRunning = true;
-        trackFinished = false;
         runtime = 0;
       });
       _currentRunStartedAt = DateTime.now();
@@ -570,44 +459,39 @@ class _DashboardPageState extends State<DashboardPage> {
     _activeService?.sendCommand(AppConstants.cmdRunStop);
 
     if (!shouldAutoSave) return;
-
     _currentRunSaved = true;
-    await _saveRunToHistory(elapsed, captureType: RunCaptureType.startStop);
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Run saved automatically')));
+    final run = PidRunHistory.create(
+      runtimeMs: elapsed,
+      captureType: RunCaptureType.startStop,
+      kp: kp,
+      ki: ki,
+      kd: kd,
+      maxSpeed: int.tryParse(maxSpeedController.text) ?? AppConstants.defaultMaxSpeed,
+      baseSpeed: int.tryParse(baseSpeedController.text) ?? AppConstants.defaultBaseSpeed,
+      minSpeed: int.tryParse(minSpeedController.text) ?? AppConstants.defaultMinSpeed,
+    );
+    await _historyService.addRun(run);
   }
 
-  void _handleAutoStopChanged(bool enabled) {
-    setState(() => autoStopOnFinish = enabled);
-    _activeService?.sendCommand(
-      '${AppConstants.cmdAutoStopPrefix}${enabled ? 1 : 0}',
-    );
+  void _handleAutoCalibrate() {
+    if (!isConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Connect to robot over BLE to calibrate')),
+      );
+      return;
+    }
+    _activeService?.triggerAutoCalibration();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(milliseconds: 900),
-        content: Text(
-          enabled ? 'Auto-stop on finish enabled' : 'Auto-stop on finish disabled',
-        ),
+      const SnackBar(
+        content: Text('Triggering optical auto-calibration routine...'),
+        duration: Duration(milliseconds: 1500),
       ),
     );
   }
 
-  void _handleLineLostRecoveryChanged(bool enabled) {
-    setState(() => lineLostRecoveryEnabled = enabled);
-    _activeService?.sendCommand(
-      '${AppConstants.cmdLineLostRecoveryPrefix}${enabled ? 1 : 0}',
-    );
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(milliseconds: 900),
-        content: Text(
-          enabled ? 'Line-lost recovery enabled' : 'Line-lost recovery disabled',
-        ),
-      ),
-    );
-  }
+  // ---------------------------------------------------------------------------
+  // Tuning & Calibration Handlers
+  // ---------------------------------------------------------------------------
 
   void _handlePChanged(double value) {
     setState(() => kp = value);
@@ -624,29 +508,44 @@ class _DashboardPageState extends State<DashboardPage> {
     _sendPidValuesQuietly();
   }
 
-  void _handleCalibrationModeChanged(bool enabled) {
-    setState(() => isCalibrationMode = enabled);
-    if (enabled) {
-      _activeService?.sendCommand(AppConstants.cmdQueryThresholds);
-      _activeService?.sendCommand(AppConstants.cmdQuerySensorMask);
-    }
+  void _sendPidValuesQuietly() {
+    _activeService?.sendCommand('${AppConstants.cmdKpPrefix}${kp.toStringAsFixed(2)}');
+    _activeService?.sendCommand('${AppConstants.cmdKiPrefix}${ki.toStringAsFixed(2)}');
+    _activeService?.sendCommand('${AppConstants.cmdKdPrefix}${kd.toStringAsFixed(2)}');
+  }
+
+  void _handlePidSend() {
+    _sendPidValuesQuietly();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(milliseconds: 900),
+        content: Text(
+          'PID Sent: P ${kp.toStringAsFixed(2)} | I ${ki.toStringAsFixed(2)} | D ${kd.toStringAsFixed(2)}',
+        ),
+      ),
+    );
+  }
+
+  void _handleResetPidDefaults() {
+    setState(() {
+      kp = _defaultSettings.kp;
+      ki = _defaultSettings.ki;
+      kd = _defaultSettings.kd;
+    });
+    _sendPidValuesQuietly();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        duration: Duration(milliseconds: 800),
+        content: Text('PID gains reset to default'),
+      ),
+    );
   }
 
   void _handleSensorEnableChanged(int index, bool enabled) {
     if (index < 0 || index >= sensorEnabled.length) return;
-    setState(() {
-      sensorEnabled[index] = enabled;
-    });
+    setState(() => sensorEnabled[index] = enabled);
     _activeService?.sendSensorEnable(index: index, enabled: enabled);
     _settingsService.saveSensorEnabled(sensorEnabled);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(milliseconds: 700),
-        content: Text(
-          'Sensor S$index ${enabled ? "enabled (ON)" : "disabled (OFF)"}',
-        ),
-      ),
-    );
   }
 
   void _handleAllSensorsEnableChanged(bool enabled) {
@@ -656,12 +555,6 @@ class _DashboardPageState extends State<DashboardPage> {
     final mask = enabled ? ((1 << AppConstants.sensorCount) - 1) : 0;
     _activeService?.sendSensorMask(mask);
     _settingsService.saveSensorEnabled(sensorEnabled);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(milliseconds: 700),
-        content: Text(enabled ? 'All sensors enabled' : 'All sensors disabled'),
-      ),
-    );
   }
 
   void _handleSensorThresholdPreview(int index, int value) {
@@ -681,12 +574,6 @@ class _DashboardPageState extends State<DashboardPage> {
       allThresholdController.text = normalized.toString();
     });
     _activeService?.sendThresholdForAllSensors(normalized);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(milliseconds: 900),
-        content: Text('All thresholds set to $normalized'),
-      ),
-    );
   }
 
   Future<void> _handleSaveCalibration() async {
@@ -696,56 +583,7 @@ class _DashboardPageState extends State<DashboardPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         duration: Duration(milliseconds: 900),
-        content: Text('Calibration & sensor states saved'),
-      ),
-    );
-  }
-
-  void _sendPidValuesQuietly() {
-    _activeService?.sendCommand('${AppConstants.cmdKpPrefix}${kp.toStringAsFixed(2)}');
-    _activeService?.sendCommand('${AppConstants.cmdKiPrefix}${ki.toStringAsFixed(2)}');
-    _activeService?.sendCommand('${AppConstants.cmdKdPrefix}${kd.toStringAsFixed(2)}');
-  }
-
-  void _handlePidSend() {
-    _activeService?.sendCommand('${AppConstants.cmdKpPrefix}${kp.toStringAsFixed(2)}');
-    _activeService?.sendCommand('${AppConstants.cmdKiPrefix}${ki.toStringAsFixed(2)}');
-    _activeService?.sendCommand('${AppConstants.cmdKdPrefix}${kd.toStringAsFixed(2)}');
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(milliseconds: 900),
-        content: Text(
-          'PID sent: P ${kp.toStringAsFixed(2)} | I ${ki.toStringAsFixed(2)} | D ${kd.toStringAsFixed(2)}',
-        ),
-      ),
-    );
-  }
-
-  void _handleResetPidDefaults() {
-    setState(() {
-      kp = _defaultSettings.kp;
-      ki = _defaultSettings.ki;
-      kd = _defaultSettings.kd;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        duration: Duration(milliseconds: 800),
-        content: Text('PID reset to saved defaults'),
-      ),
-    );
-  }
-
-  void _handleMinSpeedSend() {
-    final minSpeed =
-        int.tryParse(minSpeedController.text.trim()) ?? AppConstants.defaultMinSpeed;
-    _activeService?.sendMinSpeed(minSpeed);
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.clearSnackBars();
-    messenger.showSnackBar(
-      SnackBar(
-        duration: const Duration(milliseconds: 1200),
-        content: Text('Min speed (deadband) set to $minSpeed'),
+        content: Text('Sensor calibration & thresholds saved'),
       ),
     );
   }
@@ -756,45 +594,20 @@ class _DashboardPageState extends State<DashboardPage> {
     _settingsService.saveSettings(
       _defaultSettings.copyWith(invertSteering: inverted),
     );
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.clearSnackBars();
-    messenger.showSnackBar(
-      SnackBar(
-        duration: const Duration(milliseconds: 1200),
-        content: Text(
-          inverted ? 'Steering polarity INVERTED' : 'Steering polarity NORMAL',
-        ),
-      ),
-    );
   }
 
-  void _handleResetSpeedThresholdDefaults() {
+  void _handleResetSpeedDefaults() {
     setState(() {
       maxSpeedController.text = _defaultSettings.maxSpeed.toString();
       baseSpeedController.text = _defaultSettings.baseSpeed.toString();
       minSpeedController.text = _defaultSettings.minSpeed.toString();
       invertSteering = _defaultSettings.invertSteering;
     });
-    _activeService?.sendCommand(
-      '${AppConstants.cmdMaxSpeedPrefix}${_defaultSettings.maxSpeed}',
-    );
-    _activeService?.sendCommand(
-      '${AppConstants.cmdBaseSpeedPrefix}${_defaultSettings.baseSpeed}',
-    );
+    _activeService?.sendCommand('${AppConstants.cmdMaxSpeedPrefix}${_defaultSettings.maxSpeed}');
+    _activeService?.sendCommand('${AppConstants.cmdBaseSpeedPrefix}${_defaultSettings.baseSpeed}');
     _activeService?.sendMinSpeed(_defaultSettings.minSpeed);
     _activeService?.sendInvertSteering(_defaultSettings.invertSteering);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        duration: Duration(milliseconds: 800),
-        content: Text('Speed & polarity reset to saved defaults'),
-      ),
-    );
   }
-
-  // ---------------------------------------------------------------------------
-  // Lifecycle
-  // ---------------------------------------------------------------------------
 
   @override
   void dispose() {
@@ -819,9 +632,9 @@ class _DashboardPageState extends State<DashboardPage> {
         title: Text.rich(
           TextSpan(
             children: [
-              const TextSpan(text: 'LineRobo Companion '),
+              const TextSpan(text: 'LineRobo '),
               TextSpan(
-                text: 'Pro',
+                text: 'Championship',
                 style: const TextStyle(
                   color: Color(0xFFD4AF37),
                   fontWeight: FontWeight.w700,
@@ -856,138 +669,136 @@ class _DashboardPageState extends State<DashboardPage> {
           IconButton(
             icon: const Icon(Icons.tune_rounded),
             onPressed: _navigateToSettingsPage,
+            tooltip: 'App Defaults',
           ),
         ],
       ),
-      body: _selectedTabIndex == 0
-          ? _buildLineFollowerTab()
-          : SequenceEditorScreen(
-              robotService: _activeService,
-              isConnected: isConnected,
-            ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedTabIndex,
-        onDestinationSelected: (index) {
-          setState(() => _selectedTabIndex = index);
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.show_chart_rounded),
-            selectedIcon: Icon(Icons.show_chart_rounded, color: Color(0xFFD4AF37)),
-            label: 'Line Follower',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.account_tree_outlined),
-            selectedIcon: Icon(Icons.account_tree_rounded, color: Color(0xFF10B981)),
-            label: 'Sequence Editor',
-          ),
-        ],
-      ),
-    );
-  }
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. Live 12-Channel Optical Telemetry & Metric Center Needle
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Optical Telemetry',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Analog',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                              Switch(
+                                value: showAnalogSensors,
+                                onChanged: (value) => setState(() => showAnalogSensors = value),
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      SensorBar(
+                        sensorOnLine: sensorOnLine,
+                        sensorRawValues: sensorRawValues,
+                        sensorEnabled: sensorEnabled,
+                        showAnalog: showAnalogSensors,
+                        lineError: lineError,
+                        lineDetected: lineDetected,
+                        onSensorTap: (index) {
+                          final cur = sensorEnabled[index];
+                          _handleSensorEnableChanged(index, !cur);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
 
-  Widget _buildLineFollowerTab() {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SensorsCard(
-              sensorOnLine: sensorOnLine,
-              sensorRawValues: sensorRawValues,
-              sensorEnabled: sensorEnabled,
-              showAnalog: showAnalogSensors,
-              isCalibrationMode: isCalibrationMode,
-              sensorThresholds: sensorThresholds,
-              lineError: lineError,
-              lineDetected: lineDetected,
-              onShowAnalogChanged: (value) {
-                setState(() => showAnalogSensors = value);
-              },
-              onCalibrationModeChanged: _handleCalibrationModeChanged,
-              onSensorThresholdPreview: _handleSensorThresholdPreview,
-              onSensorThresholdCommit: _handleSensorThresholdCommit,
-              onAllSensorThresholdCommit: _handleAllSensorThresholdCommit,
-              onSensorEnableChanged: _handleSensorEnableChanged,
-              onAllSensorsEnableChanged: _handleAllSensorsEnableChanged,
-              onSaveCalibration: _handleSaveCalibration,
-            ),
-            const SizedBox(height: 12),
-            ControlSummaryCard(
-              isRunning: isRunning,
-              trackFinished: trackFinished,
-              runtime: runtime,
-              autoStopOnFinish: autoStopOnFinish,
-              lineLostRecoveryEnabled: lineLostRecoveryEnabled,
-              onAutoStopChanged: _handleAutoStopChanged,
-              onLineLostRecoveryChanged: _handleLineLostRecoveryChanged,
-              onStartStop: _handleStartStop,
-            ),
-            const SizedBox(height: 12),
-            MappingControlsCard(
-              robotService: _activeService,
-              isConnected: isConnected,
-            ),
-            const SizedBox(height: 12),
-            PidCard(
-              pValue: kp,
-              iValue: ki,
-              dValue: kd,
-              onPChanged: _handlePChanged,
-              onIChanged: _handleIChanged,
-              onDChanged: _handleDChanged,
-              onSendAll: _handlePidSend,
-              onResetDefaults: _handleResetPidDefaults,
-            ),
-            const SizedBox(height: 12),
-            SpeedCard(
-              maxSpeedController: maxSpeedController,
-              baseSpeedController: baseSpeedController,
-              minSpeedController: minSpeedController,
-              invertSteering: invertSteering,
-              onInvertSteeringChanged: _handleInvertSteeringChanged,
-              onMaxSpeedSend: () {
-                final maxSpeed = maxSpeedController.text.trim();
-                _activeService?.sendCommand(
-                  '${AppConstants.cmdMaxSpeedPrefix}$maxSpeed',
-                );
-                final messenger = ScaffoldMessenger.of(context);
-                messenger.clearSnackBars();
-                messenger.showSnackBar(
-                  SnackBar(
-                    duration: const Duration(milliseconds: 1200),
-                    content: Text('Max speed set to $maxSpeed'),
-                  ),
-                );
-              },
-              onBaseSpeedSend: () {
-                final baseSpeed = baseSpeedController.text.trim();
-                _activeService?.sendCommand(
-                  '${AppConstants.cmdBaseSpeedPrefix}$baseSpeed',
-                );
-                final messenger = ScaffoldMessenger.of(context);
-                messenger.clearSnackBars();
-                messenger.showSnackBar(
-                  SnackBar(
-                    duration: const Duration(milliseconds: 1200),
-                    content: Text('Base speed set to $baseSpeed'),
-                  ),
-                );
-              },
-              onMinSpeedSend: _handleMinSpeedSend,
-              onResetDefaults: _handleResetSpeedThresholdDefaults,
-            ),
-            const SizedBox(height: 12),
-            HistoryCard(
-              history: _filteredHistory,
-              selectedFilter: _historyFilter,
-              onFilterChanged: _handleHistoryFilterChanged,
-              onRestoreConfig: _restoreConfig,
-              onDeleteRun: _deleteRun,
-              onClearAll: _clearAllHistory,
-            ),
-          ],
+              // 2. Primary Action Card: Start / Emergency Stop, run duration timer, and Calibrate Sensors
+              ControlSummaryCard(
+                isRunning: isRunning,
+                runtime: runtime,
+                isConnected: isConnected,
+                onStartStop: _handleStartStop,
+                onCalibrate: _handleAutoCalibrate,
+              ),
+              const SizedBox(height: 12),
+
+              // 3. PID Tuning Card: Real-time sliders for Kp, Ki, Kd with scale multipliers
+              PidCard(
+                pValue: kp,
+                iValue: ki,
+                dValue: kd,
+                onPChanged: _handlePChanged,
+                onIChanged: _handleIChanged,
+                onDChanged: _handleDChanged,
+                onSendAll: _handlePidSend,
+                onResetDefaults: _handleResetPidDefaults,
+              ),
+              const SizedBox(height: 12),
+
+              // 4. Speed & Drive Card: Base Speed, Max Speed, Min Speed, and Steering Inversion toggle
+              SpeedCard(
+                maxSpeedController: maxSpeedController,
+                baseSpeedController: baseSpeedController,
+                minSpeedController: minSpeedController,
+                invertSteering: invertSteering,
+                onInvertSteeringChanged: _handleInvertSteeringChanged,
+                onMaxSpeedSend: () {
+                  final spd = maxSpeedController.text.trim();
+                  _activeService?.sendCommand('${AppConstants.cmdMaxSpeedPrefix}$spd');
+                },
+                onBaseSpeedSend: () {
+                  final spd = baseSpeedController.text.trim();
+                  _activeService?.sendCommand('${AppConstants.cmdBaseSpeedPrefix}$spd');
+                },
+                onMinSpeedSend: () {
+                  final minSpeed = int.tryParse(minSpeedController.text.trim()) ?? AppConstants.defaultMinSpeed;
+                  _activeService?.sendMinSpeed(minSpeed);
+                },
+                onResetDefaults: _handleResetSpeedDefaults,
+              ),
+              const SizedBox(height: 12),
+
+              // 5. Individual & Global Sensor Threshold Calibration Card
+              SensorsCard(
+                sensorOnLine: sensorOnLine,
+                sensorRawValues: sensorRawValues,
+                sensorEnabled: sensorEnabled,
+                showAnalog: showAnalogSensors,
+                isCalibrationMode: isCalibrationMode,
+                sensorThresholds: sensorThresholds,
+                lineError: lineError,
+                lineDetected: lineDetected,
+                onShowAnalogChanged: (value) => setState(() => showAnalogSensors = value),
+                onCalibrationModeChanged: (value) => setState(() => isCalibrationMode = value),
+                onSensorThresholdPreview: _handleSensorThresholdPreview,
+                onSensorThresholdCommit: _handleSensorThresholdCommit,
+                onAllSensorThresholdCommit: _handleAllSensorThresholdCommit,
+                onSensorEnableChanged: _handleSensorEnableChanged,
+                onAllSensorsEnableChanged: _handleAllSensorsEnableChanged,
+                onSaveCalibration: _handleSaveCalibration,
+              ),
+            ],
+          ),
         ),
       ),
     );

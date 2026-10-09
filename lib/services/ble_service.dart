@@ -6,7 +6,6 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../constants/app_constants.dart';
 import '../models/robot_state.dart';
-import '../models/sequence_step.dart';
 import 'robot_service.dart';
 
 export 'package:flutter_blue_plus/flutter_blue_plus.dart'
@@ -71,12 +70,6 @@ class BleService implements RobotService {
   final StreamController<TelemetryData> _telemetryController =
       StreamController<TelemetryData>.broadcast();
   Stream<TelemetryData> get telemetryStream => _telemetryController.stream;
-
-  // Autonomous sequence completion stream
-  final StreamController<void> _sequenceDoneController =
-      StreamController<void>.broadcast();
-  @override
-  Stream<void> get onSequenceDone => _sequenceDoneController.stream;
 
   // ---------------------------------------------------------------------------
   // Callbacks
@@ -480,65 +473,9 @@ class BleService implements RobotService {
     return sendCommand('${AppConstants.cmdInvertSteeringPrefix}${invert ? 1 : 0}');
   }
 
-  // ---------------------------------------------------------------------------
-  // Autonomous Motion Queue & Sector Mapping
-  // ---------------------------------------------------------------------------
-
   @override
-  Future<void> sendSequence(List<SequenceStep> steps) async {
-    if (_rxChar == null) {
-      debugPrint('❌ [BLE SEQUENCE] Cannot send sequence: Not connected.');
-      return;
-    }
-    debugPrint('🚀 [BLE SEQUENCE] Uploading ${steps.length} steps to robot...');
-
-    // 1. Clear existing queue on ESP32, awaiting ACK:SEQ_CLEAR
-    await sendCommandAsync(
-      AppConstants.cmdSeqClear,
-      expectedAckPrefix: 'ACK:SEQ_CLEAR',
-    );
-
-    // 2. Upload each step with verified acknowledgement
-    for (int i = 0; i < steps.length; i++) {
-      final cmd = steps[i].toBleCommand();
-      await sendCommandAsync(
-        cmd,
-        expectedAckPrefix: 'ACK:SEQ_ADD',
-      );
-    }
-
-    // 3. Initiate autonomous sequence execution, awaiting ACK:SEQ_START
-    await sendCommandAsync(
-      AppConstants.cmdSeqStart,
-      expectedAckPrefix: 'ACK:SEQ_START',
-    );
-    debugPrint('✅ [BLE SEQUENCE] Sequence uploaded and started!');
-  }
-
-  @override
-  bool stopSequence() {
-    return sendCommand(AppConstants.cmdSeqStop);
-  }
-
-  @override
-  bool startMapping() {
-    return sendCommand(AppConstants.cmdMapStart);
-  }
-
-  @override
-  bool finishMapping() {
-    return sendCommand(AppConstants.cmdMapFinish);
-  }
-
-  @override
-  bool startRace() {
-    return sendCommand(AppConstants.cmdRaceStart);
-  }
-
-  @override
-  bool sendMapSpeed(int speed) {
-    final clamped = speed.clamp(0, 255);
-    return sendCommand('${AppConstants.cmdMapSpeedPrefix}$clamped');
+  bool triggerAutoCalibration() {
+    return sendCommand(AppConstants.cmdCalibrateAuto);
   }
 
   @override
@@ -546,7 +483,6 @@ class BleService implements RobotService {
     await disconnect();
     await FlutterBluePlus.stopScan();
     await _telemetryController.close();
-    await _sequenceDoneController.close();
     telemetryNotifier.dispose();
   }
 
@@ -765,29 +701,6 @@ class BleService implements RobotService {
         );
         onSensorDataReceived?.call(rawValues, onLine);
       }
-      return;
-    }
-
-    // TRACK_FINISHED
-    if (line == AppConstants.respTrackFinished) {
-      debugPrint('🏁 [BLE TRACK] Track finished!');
-      onTrackFinished?.call(0);
-      return;
-    }
-
-    // TIME=123456
-    if (line.startsWith(AppConstants.respTimePrefix)) {
-      final timeStr = line.substring(AppConstants.respTimePrefix.length);
-      final runtime = int.tryParse(timeStr) ?? 0;
-      onTrackFinished?.call(runtime);
-      return;
-    }
-
-    // SEQ:DONE (Autonomous motion queue finished)
-    if (line == AppConstants.respSeqDone || line.startsWith('SEQ:DONE')) {
-      debugPrint('🏁 [BLE SEQUENCE] Sequence execution complete (SEQ:DONE)');
-      _sequenceDoneController.add(null);
-      onDataReceived?.call(line);
       return;
     }
 
